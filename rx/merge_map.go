@@ -1,25 +1,32 @@
 package rx
 
-func Map[T any, U any](projection func(T) U) OperatorFunction[T, U] {
+import "sync"
+
+func MergeMap[T any, U any](projection func(T) Observable[U]) OperatorFunction[T, U] {
 	return func(source Observable[T]) Observable[U] {
 		return NewUnicastObservable(func(valuesOut chan<- U, errorsOut chan<- error, done <-chan Never) {
+
+			var wg sync.WaitGroup
+
 			drainObservable(drainObservableArgs[T]{
 				source:    source,
 				valuesOut: nil, // Not used
 				errorsOut: errorsOut,
 				done:      done,
 				valueHandler: func(_ chan<- T, done <-chan Never, value T) SelectResult {
-					return Selection(SelectDone(done), SelectSend(valuesOut, projection(value)))
+
+					wg.Add(1)
+
+					GoRun(func() {
+						defer wg.Done()
+						drainObservable(drainObservableArgs[U]{source: projection(value), valuesOut: valuesOut, errorsOut: errorsOut, done: done})
+					})
+
+					return ContinueResult // Cant do better, merge is async
 				},
 			})
+
+			wg.Wait()
 		})
 	}
-}
-
-func ToAny[T any](input Observable[T]) Observable[any] {
-	return Map(func(t T) any { return t })(input)
-}
-
-func FromAny[T any]() OperatorFunction[any, T] {
-	return Map(func(t any) T { return t.(T) })
 }

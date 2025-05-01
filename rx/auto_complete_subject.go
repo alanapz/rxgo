@@ -81,11 +81,11 @@ func (x *AutoCompleteSubject[T]) Subscribe() (<-chan T, <-chan error, func()) {
 			isValue, value := x.event.IsValue()
 			isError, err := x.event.IsError()
 
-			if isValue && Selection(SelectDone(done), SelectSend(values, value)) {
+			if isValue && Selection(SelectDone(done), SelectSend(values, value)) == DoneResult {
 				return
 			}
 
-			if isError && Selection(SelectDone(done), SelectSend(errors, err)) {
+			if isError && Selection(SelectDone(done), SelectSend(errors, err)) == DoneResult {
 				return
 			}
 		}()

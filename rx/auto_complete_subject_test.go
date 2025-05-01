@@ -21,9 +21,9 @@ func TestAutoCompleteSubjectAlreadyCompleted(t *testing.T) {
 	fmt.Printf("Sending value: 'hello'\n")
 	subject.Value("hello")
 
-	wg := &sync.WaitGroup{}
+	var wg sync.WaitGroup
 
-	done := addTestSubscriber(t, wg, "s1", subject, ux.Of("hello"), ux.Of[error]())
+	done := addTestSubscriber(t, &wg, "s1", subject, ux.Of("hello"), ux.Of[error]())
 
 	wg.Wait()
 	done()
@@ -37,11 +37,11 @@ func TestAutoCompleteSubjectValue(t *testing.T) {
 	subject := NewAutoCompleteSubject[string]()
 	subject.Value("hello")
 
-	wg := &sync.WaitGroup{}
+	var wg sync.WaitGroup
 
-	done1 := addTestSubscriber(t, wg, "s1", subject, ux.Of("hello"), ux.Of[error]())
-	done2 := addTestSubscriber(t, wg, "s2", subject, ux.Of("hello"), ux.Of[error]())
-	done3 := addTestSubscriber(t, wg, "s3", subject, ux.Of("hello"), ux.Of[error]())
+	done1 := addTestSubscriber(t, &wg, "s1", subject, ux.Of("hello"), ux.Of[error]())
+	done2 := addTestSubscriber(t, &wg, "s2", subject, ux.Of("hello"), ux.Of[error]())
+	done3 := addTestSubscriber(t, &wg, "s3", subject, ux.Of("hello"), ux.Of[error]())
 
 	wg.Wait()
 	done1()
@@ -59,11 +59,11 @@ func TestAutoCompleteSubjectError(t *testing.T) {
 	subject := NewAutoCompleteSubject[string]()
 	subject.Error(err)
 
-	wg := &sync.WaitGroup{}
+	var wg sync.WaitGroup
 
-	done1 := addTestSubscriber(t, wg, "s1", subject, ux.Of[string](), ux.Of(err))
-	done2 := addTestSubscriber(t, wg, "s2", subject, ux.Of[string](), ux.Of(err))
-	done3 := addTestSubscriber(t, wg, "s3", subject, ux.Of[string](), ux.Of(err))
+	done1 := addTestSubscriber(t, &wg, "s1", subject, ux.Of[string](), ux.Of(err))
+	done2 := addTestSubscriber(t, &wg, "s2", subject, ux.Of[string](), ux.Of(err))
+	done3 := addTestSubscriber(t, &wg, "s3", subject, ux.Of[string](), ux.Of(err))
 
 	wg.Wait()
 	done1()

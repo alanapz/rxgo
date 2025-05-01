@@ -2,6 +2,7 @@ package rx
 
 import (
 	"reflect"
+	"slices"
 	"sync"
 )
 
@@ -15,6 +16,30 @@ type Never interface {
 
 func Append[T any](slice *[]T, values ...T) {
 	*slice = append(*slice, values...)
+}
+
+func Coalesce[T any](values ...T) T {
+
+	for value := range slices.Values(values) {
+
+		if !reflect.ValueOf(value).IsNil() {
+			return value
+		}
+	}
+
+	return Zero[T]()
+}
+
+func MustCoalesce[T any](values ...T) T {
+
+	for value := range slices.Values(values) {
+
+		if !reflect.ValueOf(value).IsNil() {
+			return value
+		}
+	}
+
+	panic("No values supplied")
 }
 
 func Ternary[T any](condition bool, ifTrue, ifFalse T) T {

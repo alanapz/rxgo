@@ -5,23 +5,30 @@ import (
 	"slices"
 )
 
+type SelectResult bool
+
+const ContinueResult SelectResult = false
+const DoneResult SelectResult = true
+
 type selectBuilder struct {
 	cases    []reflect.SelectCase
-	handlers []func(reflect.Value, bool) bool
+	handlers []func(reflect.Value, bool) SelectResult
 }
 
-type SelectItem func(*selectBuilder)
+type SelectItem func(*selectBuilder) SelectResult
 
 // Selection returns done (or end of stream)
-func Selection(selections ...SelectItem) bool {
+func Selection(selections ...SelectItem) SelectResult {
 
 	builder := &selectBuilder{
 		cases:    []reflect.SelectCase{},
-		handlers: []func(reflect.Value, bool) bool{},
+		handlers: []func(reflect.Value, bool) SelectResult{},
 	}
 
 	for selection := range slices.Values(selections) {
-		selection(builder)
+		if result := selection(builder); result == DoneResult {
+			return DoneResult
+		}
 	}
 
 	chosen, recv, open := reflect.Select(builder.cases)
@@ -30,93 +37,21 @@ func Selection(selections ...SelectItem) bool {
 
 // SelectDone returns endOfStream if channel is not open
 func SelectDone[T any](channel <-chan T) SelectItem {
-	return func(x *selectBuilder) {
+	return func(x *selectBuilder) SelectResult {
 		Append(&x.cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(channel)})
-		Append(&x.handlers, func(_ reflect.Value, stillOpen bool) bool {
-			return !stillOpen
+		Append(&x.handlers, func(_ reflect.Value, stillOpen bool) SelectResult {
+			return Ternary(stillOpen, ContinueResult, DoneResult)
 		})
-	}
-}
-
-type SelectReceiveMessage[T any] struct {
-	Valid       bool
-	Value       T
-	EndOfStream bool
-}
-
-func SelectReceiveInto[T any](channelPtr *<-chan T, into *SelectReceiveResult[T]) SelectItem {
-	into.Valid = false
-	into.Value = Zero[T]()
-	into.EndOfStream = false
-	return func(x *selectBuilder) {
-		if *channelPtr != nil {
-			Append(&x.cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(*channelPtr)})
-			Append(&x.handlers, func(received reflect.Value, stillOpen bool) bool {
-				into.Valid = stillOpen
-				into.Value = Cast[T](received, stillOpen)
-				into.EndOfStream = !stillOpen
-				return false
-			})
-		}
-	}
-}
-
-func SelectReceive[T any](channel <-chan T, isValue *bool, value *T, isEndOfStream *bool) SelectItem {
-	return func(x *selectBuilder) {
-		Append(&x.cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(channel)})
-		Append(&x.handlers, func(received reflect.Value, stillOpen bool) bool {
-			*isValue = stillOpen
-			*value = Cast[T](received, stillOpen)
-			*isEndOfStream = !stillOpen
-			return false
-		})
-	}
-}
-
-// SelectMustReceive returns done if channel returns endOfStream
-func SelectMustReceive[T any](channel <-chan T, isValue *bool, value *T) SelectItem {
-	return func(x *selectBuilder) {
-		Append(&x.cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(channel)})
-		Append(&x.handlers, func(received reflect.Value, stillOpen bool) bool {
-			*isValue = stillOpen
-			*value = Cast[T](received, stillOpen)
-			return !stillOpen
-		})
-	}
-}
-
-func SelectMustReceiveInto[T any](channel <-chan T, into *SelectReceiveResult[T]) SelectItem {
-	into.Valid = false
-	into.Value = Zero[T]()
-	into.EndOfStream = false
-	return func(x *selectBuilder) {
-		if channel != nil {
-			Append(&x.cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(channel)})
-			Append(&x.handlers, func(received reflect.Value, stillOpen bool) bool {
-				into.Valid = stillOpen
-				into.Value = Cast[T](received, stillOpen)
-				into.EndOfStream = !stillOpen
-				return !stillOpen
-			})
-		}
+		return ContinueResult
 	}
 }
 
 func SelectSend[T any](channel chan<- T, value T) SelectItem {
-	return func(x *selectBuilder) {
+	return func(x *selectBuilder) SelectResult {
 		Append(&x.cases, reflect.SelectCase{Dir: reflect.SelectSend, Chan: reflect.ValueOf(channel), Send: reflect.ValueOf(value)})
-		Append(&x.handlers, func(_ reflect.Value, _ bool) bool {
-			return false
+		Append(&x.handlers, func(_ reflect.Value, _ bool) SelectResult {
+			return ContinueResult
 		})
-	}
-}
-
-func SelectSendWithCallback[T any](channel chan<- T, value T, callback func()) SelectItem {
-	return func(x *selectBuilder) {
-		Append(&x.cases, reflect.SelectCase{Dir: reflect.SelectSend, Chan: reflect.ValueOf(channel), Send: reflect.ValueOf(value)})
-		Append(&x.handlers, func(_ reflect.Value, _ bool) bool {
-			callback()
-			return false
-		})
+		return ContinueResult
 	}
 }

@@ -16,14 +16,15 @@ func newTimer(interval time.Duration, repeat bool) Observable[time.Time] {
 	return NewUnicastObservable(func(valuesOut chan<- time.Time, errorsOut chan<- error, done <-chan Never) {
 		for {
 
-			var isValue bool
-			var value time.Time
+			timerMsg := SelectReceiveMessage[time.Time]{Policy: DoneOnClose}
 
-			if Selection(SelectDone(done), SelectMustReceive(time.After(interval), &isValue, &value)) {
+			timerChannel := time.After(interval)
+
+			if Selection(SelectDone(done), SelectReceive(&timerChannel, &timerMsg)) {
 				return
 			}
 
-			if isValue && Selection(SelectDone(done), SelectSend(valuesOut, value)) {
+			if timerMsg.HasValue && Selection(SelectDone(done), SelectSend(valuesOut, timerMsg.Value)) == DoneResult {
 				return
 			}
 
