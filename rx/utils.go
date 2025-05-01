@@ -1,41 +1,46 @@
 package rx
 
-type Void struct{}
+import (
+	"reflect"
+	"sync"
+)
+
+var NoOp = func() {
+
+}
+
+type Never interface {
+	unimplementable()
+}
 
 func Append[T any](slice *[]T, values ...T) {
 	*slice = append(*slice, values...)
 }
 
-func Recv1[T any](source1 <-chan T, done <-chan Void) (T, bool, bool) { // msg, isEndOfStream, isDone
-	select {
-	case _ = <-done:
-		return Zero[T](), false, true
-	case next, open := <-source1:
-		return next, !open, false
-	}
-}
+func Ternary[T any](condition bool, ifTrue, ifFalse T) T {
+	if condition {
+		return ifTrue
+	} else {
+		return ifFalse
 
-func RecvWithAdditionalDone[T any, X any](source1 <-chan T, done <-chan Void, done2 <-chan X) (T, bool, bool) { // msg, isEndOfStream, isDone
-	select {
-	case _ = <-done:
-		return Zero[T](), false, true
-	case _ = <-done2:
-		return Zero[T](), false, true
-	case next, open := <-source1:
-		return next, !open, false
-	}
-}
-
-func Send1[T any](value T, dest1 chan<- T, done <-chan Void) bool {
-	select {
-	case _ = <-done:
-		return false
-	case dest1 <- value:
-		return true
 	}
 }
 
 func Zero[T any]() T {
 	var value T
 	return value
+}
+
+const mutexLocked = 1
+
+func AssertLocked(m *sync.Mutex) bool {
+	state := reflect.ValueOf(m).Elem().FieldByName("mu").FieldByName("state")
+	return state.Int()&mutexLocked == mutexLocked
+}
+
+func Cast[T any](value reflect.Value, present bool) T {
+	if !present {
+		return Zero[T]()
+	}
+	return value.Interface().(T)
 }

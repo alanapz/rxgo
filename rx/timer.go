@@ -1,22 +1,35 @@
 package rx
 
-import "time"
+import (
+	"time"
+)
 
-func Timer(interval time.Duration) Observable[time.Time] {
-	return NewUnicastObservable(func(observer chan<- Message[time.Time], done <-chan Void) {
+func OneShotTimer(interval time.Duration) Observable[time.Time] {
+	return newTimer(interval, false)
+}
 
+func RepeatableTimer(interval time.Duration) Observable[time.Time] {
+	return newTimer(interval, true)
+}
+
+func newTimer(interval time.Duration, repeat bool) Observable[time.Time] {
+	return NewUnicastObservable(func(valuesOut chan<- time.Time, errorsOut chan<- error, done <-chan Never) {
 		for {
 
-			timer, endOfStream, isDone := Recv1(time.After(interval), done)
+			var isValue bool
+			var value time.Time
 
-			if endOfStream || isDone {
+			if Selection(SelectDone(done), SelectMustReceive(time.After(interval), &isValue, &value)) {
 				return
 			}
 
-			if !Send1(NewValue(timer), observer, done) {
+			if isValue && Selection(SelectDone(done), SelectSend(valuesOut, value)) {
 				return
 			}
 
+			if !repeat {
+				return
+			}
 		}
 	})
 }

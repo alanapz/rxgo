@@ -1,39 +1,39 @@
 package rx
 
-func FromUnmanagedChannel[T any](source <-chan T) Observable[T] {
-	return NewUnicastObservable(func(observer chan<- Message[T], done <-chan Void) {
-		for {
+// func FromUnmanagedChannel[T any](source <-chan T) Observable[T] {
+// 	return NewUnicastObservable(func(observer chan<- Message[T], done <-chan Never) {
+// 		for {
 
-			value, sourceClosed, isDone := Recv1(source, done)
+// 			value, sourceClosed, isDone := Recv1(source, done)
 
-			if sourceClosed || isDone {
-				return
-			}
+// 			if sourceClosed || isDone {
+// 				return
+// 			}
 
-			if !Send1(NewValue(value), observer, done) {
-				return
-			}
-		}
-	})
-}
+// 			if !Send1(NewValue(value), observer, done) {
+// 				return
+// 			}
+// 		}
+// 	})
+// }
 
-func FromChannel[T any](sourceSupplier func() (<-chan T, func())) Observable[T] {
-	return NewUnicastObservable(func(observer chan<- Message[T], done <-chan Void) {
+// func FromChannel[T any](sourceSupplier func() (<-chan T, func())) Observable[T] {
+// 	return NewUnicastObservable(func(observer chan<- Message[T], done <-chan Never) {
 
-		source, cleanupSource := sourceSupplier()
-		defer cleanupSource()
+// 		source, cleanupSource := sourceSupplier()
+// 		defer cleanupSource()
 
-		for {
+// 		for {
 
-			value, sourceClosed, isDone := Recv1(source, done)
+// 			value, sourceClosed, isDone := Recv1(source, done)
 
-			if sourceClosed || isDone {
-				return
-			}
+// 			if sourceClosed || isDone {
+// 				return
+// 			}
 
-			if !Send1(NewValue(value), observer, done) {
-				return
-			}
-		}
-	})
-}
+// 			if !Send1(NewValue(value), observer, done) {
+// 				return
+// 			}
+// 		}
+// 	})
+// }

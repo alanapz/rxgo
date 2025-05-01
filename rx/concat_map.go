@@ -2,20 +2,38 @@ package rx
 
 func ConcatMap[T any, U any](projection func(T) Observable[U]) OperatorFunction[T, U] {
 	return func(source Observable[T]) Observable[U] {
-		return NewUnicastObservable(func(observer chan<- Message[U], done <-chan Void) {
+		return NewUnicastObservable(func(valuesOut chan<- U, errorsOut chan<- error, done <-chan Never) {
 
-			subscriber, unsubscribe := source.Subscribe()
+			valuesIn, errorsIn, unsubscribe := source.Subscribe()
 			defer unsubscribe()
 
 			for {
 
-				msg, isEndOfStream, isDone := Recv1(subscriber, done)
-
-				if isEndOfStream || isDone {
+				if valuesIn == nil && errorsIn == nil {
 					return
 				}
 
-				if !drainObservable(projection(msg.Value), observer, done) {
+				var valueMsg SelectReceiveResult[T]
+				var errorMsg SelectReceiveResult[error]
+
+				if Selection(SelectDone(done), SelectReceiveInto(valuesIn, &valueMsg), SelectReceiveInto(errorsIn, &errorMsg)) {
+					// If Selection returns true, means done was signalled, so return true (done signalled)
+					return
+				}
+
+				if valueMsg.EndOfStream {
+					valuesIn = nil
+				}
+
+				if errorMsg.EndOfStream {
+					errorsIn = nil
+				}
+
+				if valueMsg.Valid && drainObservable(projection(valueMsg.Value), valuesOut, errorsOut, done) {
+					return
+				}
+
+				if errorMsg.Valid && Selection(SelectDone(done), SelectSend(errorsOut, errorMsg.Value)) {
 					return
 				}
 			}
@@ -23,26 +41,46 @@ func ConcatMap[T any, U any](projection func(T) Observable[U]) OperatorFunction[
 	}
 }
 
-func drainObservable[U any](observable Observable[U], observer chan<- Message[U], done <-chan Void) bool {
+// drainObservable returns true if done was signalled, false if source (both values and error) was EOF
+func drainObservable[U any](source Observable[U], valuesOut chan<- U, errorsOut chan<- error, done <-chan Never) bool {
 
-	subscription, unsubscribe := observable.Subscribe()
+	valuesIn, errorsIn, unsubscribe := source.Subscribe()
 	defer unsubscribe()
 
 	for {
 
-		msg, isEndOfStream, isDone := Recv1(subscription, done)
+		if valuesIn == nil && errorsIn == nil {
+			println("drainObservable closed valuesIn errorsIn nil")
+			return false
+		}
 
-		if isEndOfStream {
+		var valueMsg SelectReceiveResult[U]
+		var errorMsg SelectReceiveResult[error]
+
+		if Selection(SelectDone(done), SelectReceiveInto(valuesIn, &valueMsg), SelectReceiveInto(errorsIn, &errorMsg)) {
+			// If Selection returns true, means done was signalled, so return true (done signalled)
+			println("drainObservable closed")
 			return true
 		}
 
-		if isDone {
-			return false
+		if valueMsg.EndOfStream {
+			println("drainObservable valueMsg.EndOfStream")
+			valuesIn = nil
 		}
 
-		if !Send1(msg, observer, done) {
-			// If returns false here, means upstream observer has unsubscribed
-			return false
+		if errorMsg.EndOfStream {
+			println("drainObservable errorMsg.EndOfStream")
+			errorsIn = nil
+		}
+
+		if valueMsg.Valid && Selection(SelectDone(done), SelectSend(valuesOut, valueMsg.Value)) {
+			println("drainObservable closed valueMsg.Valid ")
+			return true
+		}
+
+		if errorMsg.Valid && Selection(SelectDone(done), SelectSend(errorsOut, errorMsg.Value)) {
+			println("drainObservable closed errorMsg.Valid")
+			return true
 		}
 	}
 }

@@ -2,19 +2,26 @@ package rx
 
 func Map[T any, U any](projection func(T) U) OperatorFunction[T, U] {
 	return func(source Observable[T]) Observable[U] {
-		return NewUnicastObservable(func(observer chan<- Message[U], done <-chan Void) {
+		return NewUnicastObservable(func(valuesOut chan<- U, errorsOut chan<- error, done <-chan Never) {
 
-			subscriber, unsubscribe := source.Subscribe()
+			valuesIn, errorsIn, unsubscribe := source.Subscribe()
 			defer unsubscribe()
 
 			for {
-				msg, isEndOfStream, isDone := Recv1(subscriber, done)
 
-				if isEndOfStream || isDone {
+				var isValue, isError bool
+				var value T
+				var err error
+
+				if Selection(SelectDone(done), SelectMustReceive(valuesIn, &isValue, &value), SelectMustReceive(errorsIn, &isError, &err)) {
 					return
 				}
 
-				if !Send1(MapMessage(msg, projection), observer, done) {
+				if isValue && Selection(SelectDone(done), SelectSend(valuesOut, projection(value))) {
+					return
+				}
+
+				if isError && Selection(SelectDone(done), SelectSend(errorsOut, err)) {
 					return
 				}
 			}
@@ -22,8 +29,8 @@ func Map[T any, U any](projection func(T) U) OperatorFunction[T, U] {
 	}
 }
 
-func ToAny[T any]() OperatorFunction[T, any] {
-	return Map(func(t T) any { return t })
+func ToAny[T any](input Observable[T]) Observable[any] {
+	return Map(func(t T) any { return t })(input)
 }
 
 func FromAny[T any]() OperatorFunction[any, T] {

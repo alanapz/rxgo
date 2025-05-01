@@ -1,32 +1,38 @@
 package rx
 
-import "fmt"
-
 func Take[T any](limit uint) OperatorFunction[T, T] {
 	return func(source Observable[T]) Observable[T] {
-		return NewUnicastObservable(func(observer chan<- Message[T], done <-chan Void) {
+		return NewUnicastObservable(func(valuesOut chan<- T, errorsOut chan<- error, done <-chan Never) {
 
-			subscriber, unsubscribe := source.Subscribe()
+			valuesIn, errorsIn, unsubscribe := source.Subscribe()
 			defer unsubscribe()
 
 			var position uint
 
 			for {
-				msg, isEndOfStream, isDone := Recv1(subscriber, done)
 
-				if isEndOfStream || isDone {
+				var isValue, isError bool
+				var value T
+				var err error
+
+				if Selection(SelectDone(done), SelectMustReceive(valuesIn, &isValue, &value), SelectMustReceive(errorsIn, &isError, &err)) {
 					return
 				}
 
-				if !Send1(msg, observer, done) {
+				if isValue {
+
+					position++
+
+					if position >= limit {
+						return
+					}
+				}
+
+				if isValue && Selection(SelectDone(done), SelectSend(valuesOut, value)) {
 					return
 				}
 
-				position++
-
-				println(fmt.Sprintf("%d %d", position, limit))
-
-				if position >= limit {
+				if isError && Selection(SelectDone(done), SelectSend(errorsOut, err)) {
 					return
 				}
 			}
@@ -34,6 +40,6 @@ func Take[T any](limit uint) OperatorFunction[T, T] {
 	}
 }
 
-func First[T any]() OperatorFunction[T, T] {
-	return Take[T](1)
+func First[T any](source Observable[T]) Observable[T] {
+	return Take[T](1)(source)
 }

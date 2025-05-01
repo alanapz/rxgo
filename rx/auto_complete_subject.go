@@ -1,120 +1,108 @@
 package rx
 
 import (
-	"fmt"
 	"maps"
-	"runtime/debug"
 	"sync"
+	"sync/atomic"
 )
 
-type SubscriptionId = int
-
 type AutoCompleteSubject[T any] struct {
-	lock               sync.Mutex
-	nextSubscriptionId SubscriptionId
-	subscriptions      map[SubscriptionId]*AutoCompleteSubscription[T]
-	msg                *Message[T]
+	lock             sync.Mutex
+	nextSubscriberId atomic.Uint64
+	subscribers      map[SubscriberId]*Subscriber[T]
+	event            *SubscriberEvent[T]
 }
 
-type AutoCompleteSubscription[T any] struct {
-	SubscriptionId SubscriptionId
-	Subscriber     *Channel[Message[T]]
-	Unsubcribed    *Channel[Void]
-}
-
-var _ Observable[any] = (*AutoCompleteSubject[any])(nil)
+var _ Subject[any] = (*AutoCompleteSubject[any])(nil)
 
 func NewAutoCompleteSubject[T any]() *AutoCompleteSubject[T] {
+
 	return &AutoCompleteSubject[T]{
-		subscriptions: map[SubscriptionId]*AutoCompleteSubscription[T]{},
+		subscribers: map[SubscriberId]*Subscriber[T]{},
 	}
 }
 
-func (x *AutoCompleteSubject[T]) Signal(value T) {
-	x.doSignal(NewValue(value))
+func (x *AutoCompleteSubject[T]) Value(value T) {
+	x.next(NewValueEvent(value))
 }
 
-func (x *AutoCompleteSubject[T]) SignalError(err error) {
-	x.doSignal(NewError[T](err))
+func (x *AutoCompleteSubject[T]) Error(err error) {
+	x.next(NewErrorEvent[T](err))
 }
 
-func (x *AutoCompleteSubject[T]) doSignal(msg Message[T]) {
+func (x *AutoCompleteSubject[T]) Complete() {
+	x.next(NewCompleteEvent[T]())
+}
+
+func (x *AutoCompleteSubject[T]) next(event SubscriberEvent[T]) {
 
 	x.lock.Lock()
 	defer x.lock.Unlock()
 
-	if x.msg != nil {
+	if x.event != nil {
 		panic("Already signalled")
 	}
 
-	x.msg = &msg
+	x.event = &event
 
-	for {
+	x.broadcastEvent(event)
 
-		if len(x.subscriptions) == 0 {
-			// Nothing to do
-			return
-		}
+	if !event.IsComplete() {
+		x.broadcastEvent(NewCompleteEvent[T]())
+	}
+}
+func (x *AutoCompleteSubject[T]) broadcastEvent(event SubscriberEvent[T]) {
 
-		selectBuilder := NewSelect()
+	AssertLocked(&x.lock)
 
-		for subscription := range maps.Values(x.subscriptions) {
-
-			subscription := subscription
-
-			selectBuilder.Add(SendItem(subscription.Subscriber.Channel, *x.msg, func() {
-				x.disposeSubscription(subscription)
-			}))
-
-			selectBuilder.Add(RevcItem(subscription.Unsubcribed.Channel, func(value Void, endOfStream bool) {
-				x.disposeSubscription(subscription)
-			}))
-		}
-
-		selectBuilder.Select()
+	for subscriber := range maps.Values(x.subscribers) {
+		subscriber.PostEvent(event)
 	}
 }
 
-func (x *AutoCompleteSubject[T]) disposeSubscription(subscription *AutoCompleteSubscription[T]) {
-
-	// lock must be held !
-
-	delete(x.subscriptions, subscription.SubscriptionId)
-	subscription.Subscriber.Dispose()
-	subscription.Unsubcribed.Dispose()
-
-}
-
-func (x *AutoCompleteSubject[T]) Subscribe() (<-chan Message[T], func()) {
+func (x *AutoCompleteSubject[T]) Subscribe() (<-chan T, <-chan error, func()) {
 
 	x.lock.Lock()
 	defer x.lock.Unlock()
 
-	subscriber := NewChannel[Message[T]](fmt.Sprintf("%s: for: %s", debug.Stack(), "x.stack"))
-	unsubscribed := NewChannel[Void](fmt.Sprintf("%s: for: %s", debug.Stack(), "x.stack"))
+	values, cleanupValues := NewChannel[T](0)
+	errors, cleanupErrors := NewChannel[error](0)
+	done, cleanupDone := NewChannel[Never](0)
 
-	if x.msg != nil {
+	if x.event != nil {
 
 		// If we are already signalled, simply spawn a goroutine to send existing value to new channel
 		// We can't simply send value as will deadlock
 		go func() {
-			defer subscriber.Dispose()
-			defer unsubscribed.Dispose()
-			Send1(*x.msg, subscriber.Channel, unsubscribed.Channel)
+
+			defer cleanupValues()
+			defer cleanupErrors()
+
+			isValue, value := x.event.IsValue()
+			isError, err := x.event.IsError()
+
+			if isValue && Selection(SelectDone(done), SelectSend(values, value)) {
+				return
+			}
+
+			if isError && Selection(SelectDone(done), SelectSend(errors, err)) {
+				return
+			}
 		}()
 
-		return subscriber.Channel, unsubscribed.Dispose
+		return values, errors, cleanupDone
 	}
 
-	x.nextSubscriptionId++
+	subscriber := NewSubscriber(&x.lock, values, errors, done, func() {
+		defer cleanupValues()
+		defer cleanupErrors()
+	})
 
-	subscription := &AutoCompleteSubscription[T]{
-		SubscriptionId: x.nextSubscriptionId,
-		Subscriber:     subscriber,
-		Unsubcribed:    unsubscribed,
-	}
+	x.subscribers[x.nextSubscriberId.Add(1)] = subscriber
 
-	x.subscriptions[subscription.SubscriptionId] = subscription
+	return values, errors, cleanupDone
+}
 
-	return subscriber.Channel, unsubscribed.Dispose
+func (x *AutoCompleteSubject[T]) Pipe(operator OperatorFunction[T, T]) Observable[T] {
+	return operator(x)
 }

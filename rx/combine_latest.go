@@ -4,42 +4,60 @@ import (
 	"slices"
 )
 
+type combineLatestCtx[T any] struct {
+	ValuesOut chan<- []T
+	ErrorsOut chan<- error
+	Done      <-chan Never
+	Items     []*combineLatestItem[T]
+}
+
 type combineLatestItem[T any] struct {
-	subscription <-chan Message[T]
-	unsubscribe  func()
-	endOfStream  bool
-	hasError     bool
-	err          error
-	hasValue     bool
-	value        T
+	ValuesIn    <-chan T
+	ErrorsIn    <-chan error
+	Unsubscribe func()
+	Disposed    bool
+	Emitted     bool
+	LastEmitted T
+	//
+	IncomingValue SelectReceiveResult[T]
+	IncomingError SelectReceiveResult[error]
 }
 
 func CombineLatest[T any](sources ...Observable[T]) Observable[[]T] {
-	return NewUnicastObservable(func(observer chan<- Message[[]T], done <-chan Void) {
+	return NewUnicastObservable(func(valuesOut chan<- []T, errorsOut chan<- error, done <-chan Never) {
 
-		items := make([]*combineLatestItem[T], len(sources))
+		ctx := combineLatestCtx[T]{
+			ValuesOut: valuesOut,
+			ErrorsOut: errorsOut,
+			Done:      done,
+			Items:     make([]*combineLatestItem[T], len(sources)),
+		}
 
 		for index, source := range sources {
-			subscription, unsubscribe := source.Subscribe()
+			valuesIn, errorsIn, unsubscribe := source.Subscribe()
 			defer unsubscribe()
 
-			items[index] = &combineLatestItem[T]{subscription: subscription, unsubscribe: unsubscribe}
+			ctx.Items[index] = &combineLatestItem[T]{
+				ValuesIn:    valuesIn,
+				ErrorsIn:    errorsIn,
+				Unsubscribe: unsubscribe,
+			}
 		}
 
 		for {
-			if combineLatestSelect(items, done) {
+			if ctx.SelectNext() {
 				return
 			}
 
-			if combineLatestHandleError(items, observer, done) {
+			if ctx.HandleErrors() {
 				return
 			}
 
-			if combineLatestHandleResults(items, observer, done) {
+			if ctx.HandleResults() {
 				return
 			}
 
-			if combineLatestHandleEndOfStream(items) {
+			if ctx.HandleEndOfStream() {
 				return
 			}
 		}
@@ -47,59 +65,29 @@ func CombineLatest[T any](sources ...Observable[T]) Observable[[]T] {
 }
 
 // combineLatestSelect returns isDone (ie: true for quit, false to keep going)
-func combineLatestSelect[T any](items []*combineLatestItem[T], done <-chan Void) bool {
+func (x *combineLatestCtx[T]) SelectNext() bool {
 
-	var isDone bool
+	selections := []SelectItem{}
 
-	selection := NewSelect()
+	Append(&selections, SelectDone(x.Done))
 
-	selection.Add(RevcItem(done, func(value Void, endOfStream bool) {
-		isDone = true
-	}))
-
-	for item := range slices.Values(items) {
-
-		item := item
-
-		if !item.endOfStream {
-
-			selection.Add(RevcItem(item.subscription, func(message Message[T], endOfStream bool) {
-
-				if endOfStream {
-					item.endOfStream = true
-					item.unsubscribe()
-					return
-				}
-
-				if message.IsError() {
-					item.hasError = true
-					item.err = message.Error
-					return
-				}
-
-				if message.IsValue() {
-					item.hasValue = true
-					item.value = message.Value
-					return
-				}
-
-				// Ignore unknown message types
-			}))
+	for item := range slices.Values(x.Items) {
+		if !item.Disposed {
+			Append(&selections, SelectReceiveInto(item.ValuesIn, &item.IncomingValue))
+			Append(&selections, SelectReceiveInto(item.ErrorsIn, &item.IncomingError))
 		}
 	}
 
-	selection.Select()
-	return isDone
+	return Selection(selections...)
 }
 
-// combineLatestHandleError returns isDone (ie: true for quit, false to keep going)
-func combineLatestHandleError[T any](items []*combineLatestItem[T], observer chan<- Message[[]T], done <-chan Void) bool {
+func (x *combineLatestCtx[T]) HandleErrors() bool {
 
 	errors := []error{}
 
-	for item := range slices.Values(items) {
-		if item.hasError {
-			Append(&errors, item.err)
+	for item := range slices.Values(x.Items) {
+		if !item.Disposed && item.IncomingError.Valid {
+			Append(&errors, item.IncomingError.Value)
 		}
 	}
 
@@ -108,34 +96,48 @@ func combineLatestHandleError[T any](items []*combineLatestItem[T], observer cha
 	}
 
 	for err := range slices.Values(errors) {
-		if !Send1(NewError[[]T](err), observer, done) {
-			return true
+		if Selection(SelectDone(x.Done), SelectSend(x.ErrorsOut, err)) {
+			break
 		}
 	}
 
 	return true
 }
 
-// combineLatestHandleResults returns isDone (ie: true for quit, false to keep going)
-func combineLatestHandleResults[T any](items []*combineLatestItem[T], observer chan<- Message[[]T], done <-chan Void) bool {
+func (x *combineLatestCtx[T]) HandleResults() bool {
 
-	values := make([]T, len(items))
-
-	for index, item := range items {
-		if !item.hasValue {
-			return false
+	for item := range slices.Values(x.Items) {
+		if !item.Disposed && item.IncomingValue.Valid {
+			item.Emitted = true
+			item.LastEmitted = item.IncomingValue.Value
 		}
-		values[index] = item.value
 	}
 
-	return !Send1(NewValue(values), observer, done)
+	values := make([]T, len(x.Items))
+
+	for index, item := range x.Items {
+		if !item.Emitted {
+			return false
+		}
+		values[index] = item.LastEmitted
+	}
+
+	return Selection(SelectDone(x.Done), SelectSend(x.ValuesOut, values))
 }
 
-// combineLatestHandleEndOfStream returns isDone (ie: true for quit, false to keep going)
-func combineLatestHandleEndOfStream[T any](items []*combineLatestItem[T]) bool {
+func (x *combineLatestCtx[T]) HandleEndOfStream() bool {
 
-	for item := range slices.Values(items) {
-		if !item.endOfStream {
+	for item := range slices.Values(x.Items) {
+		if !item.Disposed && (item.IncomingValue.EndOfStream || item.IncomingError.EndOfStream) {
+			item.Unsubscribe()
+			item.ValuesIn = nil
+			item.ErrorsIn = nil
+			item.Disposed = true
+		}
+	}
+
+	for item := range slices.Values(x.Items) {
+		if !item.Disposed {
 			return false
 		}
 	}

@@ -2,52 +2,34 @@ package rx
 
 import (
 	"reflect"
-	"slices"
 )
 
-type selectBuilder struct {
-	cases    []reflect.SelectCase
-	handlers []func(reflect.Value, bool) bool
-}
+type SelectReceivePolicy = bool
 
-type SelectItem func(*selectBuilder)
-
-// Selection returns done (or end of stream)
-func Selection(selections ...SelectItem) bool {
-
-	builder := &selectBuilder{
-		cases:    []reflect.SelectCase{},
-		handlers: []func(reflect.Value, bool) bool{},
-	}
-
-	for selection := range slices.Values(selections) {
-		selection(builder)
-	}
-
-	chosen, recv, open := reflect.Select(builder.cases)
-	return builder.handlers[chosen](recv, open)
-}
-
-// SelectDone returns endOfStream if channel is not open
-func SelectDone[T any](channel <-chan T) SelectItem {
-	return func(x *selectBuilder) {
-		Append(&x.cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(channel)})
-		Append(&x.handlers, func(_ reflect.Value, stillOpen bool) bool {
-			return !stillOpen
-		})
-	}
-}
+const ContinueOnClose SelectReceivePolicy = false
+const DoneOnClose SelectReceivePolicy = true
 
 type SelectReceiveMessage[T any] struct {
 	Valid       bool
 	Value       T
-	EndOfStream bool
+	endOfStream bool
+}
+
+func (x *SelectReceiveMessage[T]) Reset() {
+	x.Valid = false
+	x.Value = Zero[T]()
+	x.EndOfStream = false
+}
+
+func (x *SelectReceiveMessage[T]) IsEndOfStream() bool {
+	return x.endOfStream
+	x.Valid = false
+	x.Value = Zero[T]()
+	x.EndOfStream = false
 }
 
 func SelectReceiveInto[T any](channelPtr *<-chan T, into *SelectReceiveResult[T]) SelectItem {
-	into.Valid = false
-	into.Value = Zero[T]()
-	into.EndOfStream = false
+
 	return func(x *selectBuilder) {
 		if *channelPtr != nil {
 			Append(&x.cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(*channelPtr)})

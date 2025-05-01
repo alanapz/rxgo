@@ -2,24 +2,30 @@ package rx
 
 func TakeUntil[T any, X any](notifier <-chan X) OperatorFunction[T, T] {
 	return func(source Observable[T]) Observable[T] {
-		return NewUnicastObservable(func(observer chan<- Message[T], done <-chan Void) {
+		return NewUnicastObservable(func(valuesOut chan<- T, errorsOut chan<- error, done <-chan Never) {
 
-			subscriber, unsubscribe := source.Subscribe()
+			valuesIn, errorsIn, unsubscribe := source.Subscribe()
+
 			defer unsubscribe()
 
 			for {
 
-				msg, isEndOfStream, isDone := RecvWithAdditionalDone(subscriber, done, notifier)
+				var isValue, isError bool
+				var value T
+				var err error
 
-				if isEndOfStream || isDone {
+				if Selection(SelectDone(done), SelectDone(notifier), SelectMustReceive(valuesIn, &isValue, &value), SelectMustReceive(errorsIn, &isError, &err)) {
 					return
 				}
 
-				if !Send1(msg, observer, done) {
+				if isValue && Selection(SelectDone(done), SelectSend(valuesOut, value)) {
+					return
+				}
+
+				if isError && Selection(SelectDone(done), SelectSend(errorsOut, err)) {
 					return
 				}
 			}
-
 		})
 	}
 }

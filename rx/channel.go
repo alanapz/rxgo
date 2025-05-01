@@ -1,33 +1,27 @@
 package rx
 
 import (
-	"runtime/debug"
 	"sync"
+	"sync/atomic"
 )
 
-type Channel[T any] struct {
-	Channel  chan T
-	label    string
-	stack    string
-	lock     sync.Mutex
-	disposed bool
-}
+var _openChannels atomic.Int32
 
-func NewChannel[T any](label string) *Channel[T] {
-	return &Channel[T]{
-		Channel: make(chan T),
-		label:   label,
-		stack:   string(debug.Stack()),
+func NewChannel[T any](size uint) (chan T, func()) {
+
+	channel := make(chan T, size)
+	_openChannels.Add(1)
+
+	var cleanup sync.Once
+
+	return channel, func() {
+		cleanup.Do(func() {
+			close(channel)
+			_openChannels.Add(-1)
+		})
 	}
 }
 
-func (x *Channel[T]) Dispose() {
-	x.lock.Lock()
-	defer x.lock.Unlock()
-
-	if !x.disposed {
-		close(x.Channel)
-		x.Channel = nil
-		x.disposed = true
-	}
+func GetNumberOfOpenChannels() int32 {
+	return _openChannels.Load()
 }
