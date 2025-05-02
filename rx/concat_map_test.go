@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"alanpinder.com/rxgo/v2/ux"
+	u "alanpinder.com/rxgo/v2/utils"
 )
 
 func TestConcatMap(t *testing.T) {
@@ -25,7 +25,7 @@ func TestConcatMap(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	done := addTestSubscriber(t, &wg, "s1", source, ux.Of(3, 2, 1, 0), ux.Of[error]())
+	done := addTestSubscriber(t, &wg, "s1", source, u.Of(3, 2, 1, 0), u.Of[error]())
 
 	wg.Wait()
 	done()

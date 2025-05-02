@@ -1,8 +1,10 @@
 package rx
 
+import u "alanpinder.com/rxgo/v2/utils"
+
 func Take[T any](limit uint) OperatorFunction[T, T] {
 	return func(source Observable[T]) Observable[T] {
-		return NewUnicastObservable(func(valuesOut chan<- T, errorsOut chan<- error, done <-chan Never) {
+		return NewUnicastObservable(func(valuesOut chan<- T, errorsOut chan<- error, done <-chan u.Never) {
 
 			var count uint
 
@@ -11,7 +13,7 @@ func Take[T any](limit uint) OperatorFunction[T, T] {
 				valuesOut: valuesOut,
 				errorsOut: errorsOut,
 				done:      done,
-				afterSelectionHandler: func(valueMsg *SelectReceiveMessage[T], errorMsg *SelectReceiveMessage[error]) AfterSelectionResult {
+				afterSelectionHandler: func(valueMsg *u.SelectReceiveMessage[T], errorMsg *u.SelectReceiveMessage[error]) AfterSelectionResult {
 
 					if valueMsg.HasValue {
 

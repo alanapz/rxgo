@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"alanpinder.com/rxgo/v2/ux"
+	u "alanpinder.com/rxgo/v2/utils"
 )
 
 func TestConcat(t *testing.T) {
@@ -14,15 +14,15 @@ func TestConcat(t *testing.T) {
 	defer cleanupTest()
 
 	source := Concat(
-		ToAny(Of(1, 2, 3)),
-		ToAny(OneShotTimer(5*time.Second)).Pipe(First).Pipe(ConcatMap(func(_ any) Observable[any] { return ToAny(Of(4, 5, 6)) })),
-		ToAny(Of(7, 8, 9)),
-		ToAny(OneShotTimer(time.Second)).Pipe(First).Pipe(ConcatMap(func(_ any) Observable[any] { return ToAny(Of(10, 11, 12)) })),
+		ToAny(ConcatMap(func(_ time.Time) Observable[int] { return Of(1, 2, 3) })(OneShotTimer(4*time.Second))),
+		ToAny(ConcatMap(func(_ time.Time) Observable[int] { return Of(4, 5, 6) })(OneShotTimer(3*time.Second))),
+		ToAny(ConcatMap(func(_ time.Time) Observable[int] { return Of(7, 8, 9) })(OneShotTimer(2*time.Second))),
+		ToAny(ConcatMap(func(_ time.Time) Observable[int] { return Of(10, 11, 12) })(OneShotTimer(time.Second))),
 	)
 
 	var wg sync.WaitGroup
 
-	done := addTestSubscriber(t, &wg, "s1", source, ux.Of[any](1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12), ux.Of[error]())
+	done := addTestSubscriber(t, &wg, "s1", source, u.Of[any](1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12), u.Of[error]())
 
 	wg.Wait()
 	done()

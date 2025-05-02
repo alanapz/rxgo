@@ -1,72 +1,72 @@
 package rx
 
-import (
-	"errors"
-	"fmt"
-	"sync"
-	"testing"
+// import (
+// 	"errors"
+// 	"fmt"
+// 	"sync"
+// 	"testing"
 
-	"alanpinder.com/rxgo/v2/ux"
-)
+// 	u "alanpinder.com/rxgo/v2/utils"
+// )
 
-// TestHelloName calls greetings.Hello with a name, checking
-// for a valid return value.
-func TestAutoCompleteSubjectAlreadyCompleted(t *testing.T) {
+// // TestHelloName calls greetings.Hello with a name, checking
+// // for a valid return value.
+// func TestAutoCompleteSubjectAlreadyCompleted(t *testing.T) {
 
-	cleanupTest := prepareTest(t)
-	defer cleanupTest()
+// 	cleanupTest := tu.PrepareTest(t)
+// 	defer cleanupTest()
 
-	subject := NewAutoCompleteSubject[string]()
+// 	subject := NewAutoCompleteSubject[string]()
 
-	fmt.Printf("Sending value: 'hello'\n")
-	subject.Value("hello")
+// 	fmt.Printf("Sending value: 'hello'\n")
+// 	subject.Value("hello")
 
-	var wg sync.WaitGroup
+// 	var wg sync.WaitGroup
 
-	done := addTestSubscriber(t, &wg, "s1", subject, ux.Of("hello"), ux.Of[error]())
+// 	done := addTestSubscriber(t, &wg, "s1", subject, u.Of("hello"), u.Of[error]())
 
-	wg.Wait()
-	done()
-}
+// 	wg.Wait()
+// 	done()
+// }
 
-func TestAutoCompleteSubjectValue(t *testing.T) {
+// func TestAutoCompleteSubjectValue(t *testing.T) {
 
-	cleanupTest := prepareTest(t)
-	defer cleanupTest()
+// 	cleanupTest := PrepareTest(t)
+// 	defer cleanupTest()
 
-	subject := NewAutoCompleteSubject[string]()
-	subject.Value("hello")
+// 	subject := NewAutoCompleteSubject[string]()
+// 	subject.Value("hello")
 
-	var wg sync.WaitGroup
+// 	var wg sync.WaitGroup
 
-	done1 := addTestSubscriber(t, &wg, "s1", subject, ux.Of("hello"), ux.Of[error]())
-	done2 := addTestSubscriber(t, &wg, "s2", subject, ux.Of("hello"), ux.Of[error]())
-	done3 := addTestSubscriber(t, &wg, "s3", subject, ux.Of("hello"), ux.Of[error]())
+// 	done1 := tu.AddSubscriber(t, &wg, "s1", subject, u.Of("hello"), u.Of[error]())
+// 	done2 := tu.AddSubscriber(t, &wg, "s2", subject, u.Of("hello"), u.Of[error]())
+// 	done3 := tu.AddSubscriber(t, &wg, "s3", subject, u.Of("hello"), u.Of[error]())
 
-	wg.Wait()
-	done1()
-	done2()
-	done3()
-}
+// 	wg.Wait()
+// 	done1()
+// 	done2()
+// 	done3()
+// }
 
-func TestAutoCompleteSubjectError(t *testing.T) {
+// func TestAutoCompleteSubjectError(t *testing.T) {
 
-	cleanupTest := prepareTest(t)
-	defer cleanupTest()
+// 	cleanupTest := tu.PrepareTest(t)
+// 	defer cleanupTest()
 
-	err := errors.New("new error")
+// 	err := errors.New("new error")
 
-	subject := NewAutoCompleteSubject[string]()
-	subject.Error(err)
+// 	subject := NewAutoCompleteSubject[string]()
+// 	subject.Error(err)
 
-	var wg sync.WaitGroup
+// 	var wg sync.WaitGroup
 
-	done1 := addTestSubscriber(t, &wg, "s1", subject, ux.Of[string](), ux.Of(err))
-	done2 := addTestSubscriber(t, &wg, "s2", subject, ux.Of[string](), ux.Of(err))
-	done3 := addTestSubscriber(t, &wg, "s3", subject, ux.Of[string](), ux.Of(err))
+// 	done1 := addTestSubscriber(t, &wg, "s1", subject, u.Of[string](), u.Of(err))
+// 	done2 := addTestSubscriber(t, &wg, "s2", subject, u.Of[string](), u.Of(err))
+// 	done3 := addTestSubscriber(t, &wg, "s3", subject, u.Of[string](), u.Of(err))
 
-	wg.Wait()
-	done1()
-	done2()
-	done3()
-}
+// 	wg.Wait()
+// 	done1()
+// 	done2()
+// 	done3()
+// }

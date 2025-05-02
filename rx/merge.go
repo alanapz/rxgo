@@ -3,10 +3,12 @@ package rx
 import (
 	"slices"
 	"sync"
+
+	u "alanpinder.com/rxgo/v2/utils"
 )
 
 func Merge[T any](sources ...Observable[T]) Observable[T] {
-	return NewUnicastObservable(func(valuesOut chan<- T, errorsOut chan<- error, done <-chan Never) {
+	return NewUnicastObservable(func(valuesOut chan<- T, errorsOut chan<- error, done <-chan u.Never) {
 
 		var wg sync.WaitGroup
 

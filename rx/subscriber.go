@@ -1,148 +1,189 @@
 package rx
 
-import (
-	"sync"
-)
+// import (
+// 	"sync"
 
-type SubscriberId = uint64
+// 	u "alanpinder.com/rxgo/v2/utils"
+// )
 
-type Subscriber[T any] struct {
-	lock          *sync.Mutex
-	values        chan<- T
-	errors        chan<- error
-	done          <-chan Never
-	cleanup       func()
-	queue         *Queue[SubscriberEvent[T]]
-	disposed      bool
-	activeWorkers uint64
-}
+// var stateOpen = 1
+// var stateOpen = 1
 
-func NewSubscriber[T any](lock *sync.Mutex, values chan<- T, errors chan<- error, done <-chan Never, cleanup func()) *Subscriber[T] {
-	return &Subscriber[T]{
-		lock:    lock,
-		values:  values,
-		errors:  errors,
-		done:    done,
-		cleanup: cleanup,
-		queue:   NewQueue[SubscriberEvent[T]](),
-	}
-}
+// type subscriber[T any] struct {
+// 	lock            *sync.Mutex
+// 	values          *MessageQueue[T]
+// 	cleanupValues   func()
+// 	valuesCleanedUp sync.Once
+// 	errors          *MessageQueue[error]
+// 	cleanupErrors   func()
+// 	done            <-chan u.Never
+// 	result          error
+// }
 
-func (x *Subscriber[T]) PostEvent(event SubscriberEvent[T]) bool {
+// func NewSubscriber[T any](lock *sync.Mutex, values chan<- T, errors chan<- error, done <-chan Never, valuesCleanup func()) *Subscriber[T] {
 
-	AssertLocked(x.lock)
+// 	var valuesCleanedUp sync.Once
 
-	if x.disposed {
-		return true
-	}
+// 	valuesDisposed := func(err error) {
+// 		valuesCleanedUp.Do(func() {
+// 			valuesCleanup()
+// 		})
+// 	}
 
-	x.queue.Push(event)
+// 	errorDisposed := func(err error) {
+// 		valuesCleanedUp.Do(func() {
+// 			valuesCleanup()
+// 		})
+// 	}
 
-	GoRun(x.flushQueue)
+// 	return &Subscriber[T]{
+// 		lock:    lock,
+// 		values:  NewMessageQueue(lock, values, done),
+// 		errors:  errors,
+// 		done:    done,
+// 		cleanup: cleanup,
+// 		queue:   NewQueue[SubscriberEvent[T]](),
+// 	}
+// }
 
-	return false
-}
+// func (x *subscriber[T]) PostValue(value T) error {
 
-func (x *Subscriber[T]) flushQueue() {
+// 	u.AssertLocked(x.lock)
 
-	workerNecessary, cleanup := x.isWorkerNecessary()
-	defer cleanup()
+// 	if x.result != nil {
+// 		return x.result
+// 	}
 
-	if !workerNecessary {
-		return
-	}
+// 	return x.values.PostValue(value)
+// }
 
-	if x.flushQueueIteration() {
-		x.dispose()
-	}
-}
+// func (x *subscriber[T]) PostError(value T) error {
 
-func (x *Subscriber[T]) dispose() {
+// 	u.AssertLocked(x.lock)
 
-	x.lock.Lock()
-	defer x.lock.Unlock()
+// 	if x.result != nil {
+// 		return x.result
+// 	}
 
-	if x.disposed {
-		panic("subscriber already disposed")
-	}
+// 	return x.values.PostValue(value)
+// }
 
-	x.disposed = true
-	x.cleanup()
-}
+// func (x *Subscriber[T]) PostComplete() error {
 
-// flushQueueIteration returns true if the subscriber should be disposed, or false if it should remain running
-func (x *Subscriber[T]) flushQueueIteration() bool {
+// 	AssertLocked(x.lock)
 
-	for {
+// 	if x.result != nil {
+// 		return x.result
+// 	}
 
-		var selectItems []SelectItem
+// 	return x.values.PostValue(value)
+// 	x.queue.Push(event)
 
-		if x.buildNextSelection(&selectItems) {
-			return true
-		}
+// 	GoRun(x.flushQueue)
 
-		if len(selectItems) == 0 {
-			return false
-		}
+// 	return false
+// }
 
-		if Selection(selectItems...) {
-			return true
-		}
-	}
-}
+// func (x *Subscriber[T]) flushQueue() {
 
-func (x *Subscriber[T]) buildNextSelection(selectItems *[]SelectItem) bool {
+// 	workerNecessary, cleanup := x.isWorkerNecessary()
+// 	defer cleanup()
 
-	x.lock.Lock()
-	defer x.lock.Unlock()
+// 	if !workerNecessary {
+// 		return
+// 	}
 
-	event, ok := x.queue.PopFirst()
+// 	if x.flushQueueIteration() {
+// 		x.dispose()
+// 	}
+// }
 
-	if !ok {
-		// Queue empty, nothing to do (for the moment)
-		return false
-	}
+// func (x *Subscriber[T]) dispose() {
 
-	if event.IsComplete() {
-		return true
-	}
+// 	x.lock.Lock()
+// 	defer x.lock.Unlock()
 
-	isValue, value := event.IsValue()
-	isError, err := event.IsError()
+// 	if x.disposed {
+// 		panic("subscriber already disposed")
+// 	}
 
-	Append(selectItems, SelectDone(x.done))
+// 	x.disposed = true
+// 	x.cleanup()
+// }
 
-	if isValue {
-		Append(selectItems, SelectSend(x.values, value))
-	}
+// // flushQueueIteration returns true if the subscriber should be disposed, or false if it should remain running
+// func (x *Subscriber[T]) flushQueueIteration() bool {
 
-	if isError {
-		Append(selectItems, SelectSend(x.errors, err))
-	}
+// 	for {
 
-	return false
-}
+// 		var selectItems []SelectItem
 
-func (x *Subscriber[T]) isWorkerNecessary() (bool, func()) {
+// 		if x.buildNextSelection(&selectItems) {
+// 			return true
+// 		}
 
-	x.lock.Lock()
-	defer x.lock.Unlock()
+// 		if len(selectItems) == 0 {
+// 			return false
+// 		}
 
-	if x.disposed {
-		return false, NoOp
-	}
+// 		if Selection(selectItems...) {
+// 			return true
+// 		}
+// 	}
+// }
 
-	if x.activeWorkers > 0 {
-		return false, NoOp
-	}
+// func (x *Subscriber[T]) buildNextSelection(selectItems *[]SelectItem) bool {
 
-	x.activeWorkers++
+// 	x.lock.Lock()
+// 	defer x.lock.Unlock()
 
-	return true, func() {
+// 	event, ok := x.queue.PopFirst()
 
-		x.lock.Lock()
-		defer x.lock.Unlock()
+// 	if !ok {
+// 		// Queue empty, nothing to do (for the moment)
+// 		return false
+// 	}
 
-		x.activeWorkers--
-	}
-}
+// 	if event.IsComplete() {
+// 		return true
+// 	}
+
+// 	isValue, value := event.IsValue()
+// 	isError, err := event.IsError()
+
+// 	Append(selectItems, SelectDone(x.done))
+
+// 	if isValue {
+// 		Append(selectItems, SelectSend(x.values, value))
+// 	}
+
+// 	if isError {
+// 		Append(selectItems, SelectSend(x.errors, err))
+// 	}
+
+// 	return false
+// }
+
+// func (x *Subscriber[T]) isWorkerNecessary() (bool, func()) {
+
+// 	x.lock.Lock()
+// 	defer x.lock.Unlock()
+
+// 	if x.disposed {
+// 		return false, NoOp
+// 	}
+
+// 	if x.activeWorkers > 0 {
+// 		return false, NoOp
+// 	}
+
+// 	x.activeWorkers++
+
+// 	return true, func() {
+
+// 		x.lock.Lock()
+// 		defer x.lock.Unlock()
+
+// 		x.activeWorkers--
+// 	}
+// }

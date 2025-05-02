@@ -1,11 +1,15 @@
 package rx
 
-import "slices"
+import (
+	"slices"
+
+	u "alanpinder.com/rxgo/v2/utils"
+)
 
 func Of[T any](values ...T) Observable[T] {
-	return NewUnicastObservable(func(valuesOut chan<- T, errorsOut chan<- error, done <-chan Never) {
+	return NewUnicastObservable(func(valuesOut chan<- T, errorsOut chan<- error, done <-chan u.Never) {
 		for value := range slices.Values(values) {
-			if Selection(SelectDone(done), SelectSend(valuesOut, value)) {
+			if u.Selection(u.SelectDone(done), u.SelectSend(valuesOut, value)) {
 				return
 			}
 		}

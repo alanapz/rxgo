@@ -1,15 +1,17 @@
 package rx
 
+import u "alanpinder.com/rxgo/v2/utils"
+
 func Map[T any, U any](projection func(T) U) OperatorFunction[T, U] {
 	return func(source Observable[T]) Observable[U] {
-		return NewUnicastObservable(func(valuesOut chan<- U, errorsOut chan<- error, done <-chan Never) {
+		return NewUnicastObservable(func(valuesOut chan<- U, errorsOut chan<- error, done <-chan u.Never) {
 			drainObservable(drainObservableArgs[T]{
 				source:    source,
 				valuesOut: nil, // Not used
 				errorsOut: errorsOut,
 				done:      done,
-				valueHandler: func(_ chan<- T, done <-chan Never, value T) SelectResult {
-					return Selection(SelectDone(done), SelectSend(valuesOut, projection(value)))
+				valueHandler: func(_ chan<- T, done <-chan u.Never, value T) u.SelectResult {
+					return u.Selection(u.SelectDone(done), u.SelectSend(valuesOut, projection(value)))
 				},
 			})
 		})

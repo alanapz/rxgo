@@ -1,21 +1,15 @@
 package rx
 
 import (
-	"sync/atomic"
+	"fmt"
 )
-
-var _runningGoRoutines atomic.Int32
 
 func GoRun(fn func()) {
 
-	_runningGoRoutines.Add(1)
+	clearCondition := AddCondition(fmt.Sprintf("Waiting for goroutine %p to exit", fn))
 
 	go func() {
-		defer _runningGoRoutines.Add(-1)
+		defer clearCondition()
 		fn()
 	}()
-}
-
-func GetNumberOfRunningGoRoutines() int32 {
-	return _runningGoRoutines.Load()
 }

@@ -1,27 +1,22 @@
 package rx
 
 import (
+	"fmt"
 	"sync"
-	"sync/atomic"
 )
-
-var _openChannels atomic.Int32
 
 func NewChannel[T any](size uint) (chan T, func()) {
 
 	channel := make(chan T, size)
-	_openChannels.Add(1)
+
+	clearCondition := AddCondition(fmt.Sprintf("Waiting for channel %p to be closed", channel))
 
 	var cleanup sync.Once
 
 	return channel, func() {
 		cleanup.Do(func() {
+			defer clearCondition()
 			close(channel)
-			_openChannels.Add(-1)
 		})
 	}
-}
-
-func GetNumberOfOpenChannels() int32 {
-	return _openChannels.Load()
 }

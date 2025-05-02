@@ -1,12 +1,11 @@
 package rx
 
 import (
-	"alanpinder.com/rxgo/v2/ux"
+	u "alanpinder.com/rxgo/v2/utils"
 )
 
 type Observable[T any] interface {
 	Subscribe() (<-chan T, <-chan error, func())
-	Pipe(func(Observable[T]) Observable[T]) Observable[T]
 }
 
 type AfterSelectionResult string
@@ -20,24 +19,24 @@ type drainObservableArgs[T any] struct {
 	source                Observable[T]
 	valuesOut             chan<- T
 	errorsOut             chan<- error
-	done                  <-chan Never
-	additionalSelections  func() []SelectItem
-	afterSelectionHandler func(*SelectReceiveMessage[T], *SelectReceiveMessage[error]) AfterSelectionResult
-	valueHandler          func(chan<- T, <-chan Never, T) SelectResult
-	errorHandler          func(chan<- error, <-chan Never, error) SelectResult
+	done                  <-chan u.Never
+	additionalSelections  func() []u.SelectItem
+	afterSelectionHandler func(*u.SelectReceiveMessage[T], *u.SelectReceiveMessage[error]) AfterSelectionResult
+	valueHandler          func(chan<- T, <-chan u.Never, T) u.SelectResult
+	errorHandler          func(chan<- error, <-chan u.Never, error) u.SelectResult
 }
 
-func drainObservable[T any](args drainObservableArgs[T]) SelectResult {
+func drainObservable[T any](args drainObservableArgs[T]) u.SelectResult {
 
 	source, valuesOut, errorsOut, done, additionalSelections, afterSelection, valueHandler, errorHandler :=
 		args.source,
 		args.valuesOut,
 		args.errorsOut,
 		args.done,
-		MustCoalesce(args.additionalSelections, defaultAdditionalSelections),
-		MustCoalesce(args.afterSelectionHandler, defaultAfterSelectionHandler),
-		MustCoalesce(args.valueHandler, defaultDrainValueHandler),
-		MustCoalesce(args.errorHandler, defaultDrainErrorHandler)
+		u.MustCoalesce(args.additionalSelections, defaultAdditionalSelections),
+		u.MustCoalesce(args.afterSelectionHandler, defaultAfterSelectionHandler),
+		u.MustCoalesce(args.valueHandler, defaultDrainValueHandler),
+		u.MustCoalesce(args.errorHandler, defaultDrainErrorHandler)
 
 	valuesIn, errorsIn, unsubscribe := source.Subscribe()
 	defer unsubscribe()
@@ -45,55 +44,55 @@ func drainObservable[T any](args drainObservableArgs[T]) SelectResult {
 	for {
 
 		if valuesIn == nil && errorsIn == nil {
-			return ContinueResult
+			return u.ContinueResult
 		}
 
-		var valueMsg SelectReceiveMessage[T]
-		var errorMsg SelectReceiveMessage[error]
+		var valueMsg u.SelectReceiveMessage[T]
+		var errorMsg u.SelectReceiveMessage[error]
 
-		selectionItems := ux.Of(
-			SelectDone(done),
-			SelectReceive(&valuesIn, &valueMsg),
-			SelectReceive(&errorsIn, &errorMsg),
+		selectionItems := u.Of(
+			u.SelectDone(done),
+			u.SelectReceive(&valuesIn, &valueMsg),
+			u.SelectReceive(&errorsIn, &errorMsg),
 		)
 
-		Append(&selectionItems, additionalSelections()...)
+		u.Append(&selectionItems, additionalSelections()...)
 
-		if Selection(selectionItems...) {
-			return DoneResult
+		if u.Selection(selectionItems...) {
+			return u.DoneResult
 		}
 
 		switch afterSelection(&valueMsg, &errorMsg) {
 		case DropMessage:
 			continue
 		case ReturnContinue:
-			return ContinueResult
+			return u.ContinueResult
 		case ReturnDone:
-			return DoneResult
+			return u.DoneResult
 		}
 
-		if valueMsg.HasValue && valueHandler(valuesOut, done, valueMsg.Value) == DoneResult {
-			return DoneResult
+		if valueMsg.HasValue && valueHandler(valuesOut, done, valueMsg.Value) == u.DoneResult {
+			return u.DoneResult
 		}
 
-		if errorMsg.HasValue && errorHandler(errorsOut, done, errorMsg.Value) == DoneResult {
-			return DoneResult
+		if errorMsg.HasValue && errorHandler(errorsOut, done, errorMsg.Value) == u.DoneResult {
+			return u.DoneResult
 		}
 	}
 }
 
-func defaultAdditionalSelections() []SelectItem {
-	return Zero[[]SelectItem]()
+func defaultAdditionalSelections() []u.SelectItem {
+	return u.Zero[[]u.SelectItem]()
 }
 
-func defaultAfterSelectionHandler[T any](valueMsg *SelectReceiveMessage[T], errorMsg *SelectReceiveMessage[error]) AfterSelectionResult {
+func defaultAfterSelectionHandler[T any](valueMsg *u.SelectReceiveMessage[T], errorMsg *u.SelectReceiveMessage[error]) AfterSelectionResult {
 	return ContinueMessage
 }
 
-func defaultDrainValueHandler[T any](valuesOut chan<- T, done <-chan Never, value T) SelectResult {
-	return Selection(SelectDone(done), SelectSend(valuesOut, value))
+func defaultDrainValueHandler[T any](valuesOut chan<- T, done <-chan u.Never, value T) u.SelectResult {
+	return u.Selection(u.SelectDone(done), u.SelectSend(valuesOut, value))
 }
 
-func defaultDrainErrorHandler(errorsOut chan<- error, done <-chan Never, err error) SelectResult {
-	return Selection(SelectDone(done), SelectSend(errorsOut, err))
+func defaultDrainErrorHandler(errorsOut chan<- error, done <-chan u.Never, err error) u.SelectResult {
+	return u.Selection(u.SelectDone(done), u.SelectSend(errorsOut, err))
 }

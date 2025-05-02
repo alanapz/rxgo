@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"alanpinder.com/rxgo/v2/ux"
+	u "alanpinder.com/rxgo/v2/utils"
 )
 
 func TestMergeMap(t *testing.T) {
@@ -25,7 +25,7 @@ func TestMergeMap(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	done := addTestSubscriber(t, &wg, "s1", source, ux.Of(0, 1, 2, 3), ux.Of[error]())
+	done := addTestSubscriber(t, &wg, "s1", source, u.Of(0, 1, 2, 3), u.Of[error]())
 
 	wg.Wait()
 	done()
