@@ -2,9 +2,12 @@ package rx
 
 import u "alanpinder.com/rxgo/v2/utils"
 
-func Filter[T any](filter func(T) bool) OperatorFunction[T, T] {
+func Take[T any](limit uint) OperatorFunction[T, T] {
 	return func(source Observable[T]) Observable[T] {
 		return NewUnicastObservable(func(valuesOut chan<- T, errorsOut chan<- error, unsubscribed <-chan u.Never) {
+
+			var count uint
+
 			drainObservable(drainObservableArgs[T]{
 				source:       source,
 				valuesOut:    valuesOut,
@@ -14,8 +17,13 @@ func Filter[T any](filter func(T) bool) OperatorFunction[T, T] {
 					return drainObservableLoopContext[T]{
 						onSelection: func(valueMsg *u.SelectReceiveMessage[T], errorMsg *u.SelectReceiveMessage[error]) AfterSelectionResult {
 
-							if valueMsg.HasValue && !filter(valueMsg.Value) {
-								return DropMessage
+							if valueMsg.HasValue {
+
+								count++
+
+								if count > limit {
+									return StopAndContinueNext
+								}
 							}
 
 							return ContinueMessage
@@ -25,4 +33,8 @@ func Filter[T any](filter func(T) bool) OperatorFunction[T, T] {
 			})
 		})
 	}
+}
+
+func First[T any]() OperatorFunction[T, T] {
+	return Take[T](1)
 }

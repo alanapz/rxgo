@@ -5,7 +5,7 @@ import (
 )
 
 func ThrowError[T any](err error) Observable[T] {
-	return NewUnicastObservable(func(valuesOut chan<- T, errorsOut chan<- error, done <-chan u.Never) {
-		u.Selection(u.SelectDone(done), u.SelectSend(errorsOut, err))
+	return NewUnicastObservable(func(valuesOut chan<- T, errorsOut chan<- error, unsubscribed <-chan u.Never) {
+		u.Selection(u.SelectDone(unsubscribed), u.SelectSend(errorsOut, err))
 	})
 }

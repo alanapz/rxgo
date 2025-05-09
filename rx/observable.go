@@ -12,33 +12,28 @@ type AfterSelectionResult string
 
 const ContinueMessage AfterSelectionResult = "continue"
 const DropMessage AfterSelectionResult = "drop"
-const ReturnContinue AfterSelectionResult = "returnContinue"
-const ReturnDone AfterSelectionResult = "returnDone"
+const StopAndContinueNext AfterSelectionResult = "returnContinue"
+const StopAndReturnDone AfterSelectionResult = "returnDone"
 
 type drainObservableArgs[T any] struct {
-	source                Observable[T]
-	valuesOut             chan<- T
-	errorsOut             chan<- error
-	done                  <-chan u.Never
-	additionalSelections  func() []u.SelectItem
-	afterSelectionHandler func(*u.SelectReceiveMessage[T], *u.SelectReceiveMessage[error]) AfterSelectionResult
-	valueHandler          func(chan<- T, <-chan u.Never, T) u.SelectResult
-	errorHandler          func(chan<- error, <-chan u.Never, error) u.SelectResult
+	source         Observable[T]
+	valuesOut      chan<- T
+	errorsOut      chan<- error
+	unsubscribed   <-chan u.Never
+	newLoopContext func() drainObservableLoopContext[T]
+}
+
+type drainObservableLoopContext[T any] struct {
+	beforeSelection func(*[]u.SelectItem)
+	onSelection     func(*u.SelectReceiveMessage[T], *u.SelectReceiveMessage[error]) AfterSelectionResult
+	onValue         func(chan<- T, <-chan u.Never, T) u.SelectResult
+	onError         func(chan<- error, <-chan u.Never, error) u.SelectResult
 }
 
 func drainObservable[T any](args drainObservableArgs[T]) u.SelectResult {
 
-	source, valuesOut, errorsOut, done, additionalSelections, afterSelection, valueHandler, errorHandler :=
-		args.source,
-		args.valuesOut,
-		args.errorsOut,
-		args.done,
-		u.MustCoalesce(args.additionalSelections, defaultAdditionalSelections),
-		u.MustCoalesce(args.afterSelectionHandler, defaultAfterSelectionHandler),
-		u.MustCoalesce(args.valueHandler, defaultDrainValueHandler),
-		u.MustCoalesce(args.errorHandler, defaultDrainErrorHandler)
-
-	valuesIn, errorsIn, unsubscribe := source.Subscribe()
+	// First subscribe to source observable
+	valuesIn, errorsIn, unsubscribe := args.source.Subscribe()
 	defer unsubscribe()
 
 	for {
@@ -47,52 +42,56 @@ func drainObservable[T any](args drainObservableArgs[T]) u.SelectResult {
 			return u.ContinueResult
 		}
 
+		loopCtx := buildNewLoopContext(args.newLoopContext)
+
 		var valueMsg u.SelectReceiveMessage[T]
 		var errorMsg u.SelectReceiveMessage[error]
 
 		selectionItems := u.Of(
-			u.SelectDone(done),
+			u.SelectDone(args.unsubscribed),
 			u.SelectReceive(&valuesIn, &valueMsg),
 			u.SelectReceive(&errorsIn, &errorMsg),
 		)
 
-		u.Append(&selectionItems, additionalSelections()...)
+		loopCtx.beforeSelection(&selectionItems)
 
 		if u.Selection(selectionItems...) {
 			return u.DoneResult
 		}
 
-		switch afterSelection(&valueMsg, &errorMsg) {
+		switch loopCtx.onSelection(&valueMsg, &errorMsg) {
 		case DropMessage:
 			continue
-		case ReturnContinue:
+		case StopAndContinueNext:
 			return u.ContinueResult
-		case ReturnDone:
+		case StopAndReturnDone:
 			return u.DoneResult
 		}
 
-		if valueMsg.HasValue && valueHandler(valuesOut, done, valueMsg.Value) == u.DoneResult {
+		if valueMsg.HasValue && loopCtx.onValue(args.valuesOut, args.unsubscribed, valueMsg.Value) == u.DoneResult {
 			return u.DoneResult
 		}
 
-		if errorMsg.HasValue && errorHandler(errorsOut, done, errorMsg.Value) == u.DoneResult {
+		if errorMsg.HasValue && loopCtx.onError(args.errorsOut, args.unsubscribed, errorMsg.Value) == u.DoneResult {
 			return u.DoneResult
 		}
 	}
 }
 
-func defaultAdditionalSelections() []u.SelectItem {
-	return u.Zero[[]u.SelectItem]()
-}
+func buildNewLoopContext[T any](newLoopContext func() drainObservableLoopContext[T]) drainObservableLoopContext[T] {
 
-func defaultAfterSelectionHandler[T any](valueMsg *u.SelectReceiveMessage[T], errorMsg *u.SelectReceiveMessage[error]) AfterSelectionResult {
-	return ContinueMessage
-}
+	loopContext := u.MustCoalesce(newLoopContext, u.Zero[drainObservableLoopContext[T]])()
 
-func defaultDrainValueHandler[T any](valuesOut chan<- T, done <-chan u.Never, value T) u.SelectResult {
-	return u.Selection(u.SelectDone(done), u.SelectSend(valuesOut, value))
-}
-
-func defaultDrainErrorHandler(errorsOut chan<- error, done <-chan u.Never, err error) u.SelectResult {
-	return u.Selection(u.SelectDone(done), u.SelectSend(errorsOut, err))
+	return drainObservableLoopContext[T]{
+		beforeSelection: u.MustCoalesce(loopContext.beforeSelection, func(_ *[]u.SelectItem) {}),
+		onSelection: u.MustCoalesce(loopContext.onSelection, func(_ *u.SelectReceiveMessage[T], _ *u.SelectReceiveMessage[error]) AfterSelectionResult {
+			return ContinueMessage
+		}),
+		onValue: u.MustCoalesce(loopContext.onValue, func(valuesOut chan<- T, unsubscribed <-chan u.Never, value T) u.SelectResult {
+			return u.Selection(u.SelectDone(unsubscribed), u.SelectSend(valuesOut, value))
+		}),
+		onError: u.MustCoalesce(loopContext.onError, func(errorsOut chan<- error, unsubscribed <-chan u.Never, err error) u.SelectResult {
+			return u.Selection(u.SelectDone(unsubscribed), u.SelectSend(errorsOut, err))
+		}),
+	}
 }

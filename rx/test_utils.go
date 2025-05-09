@@ -11,7 +11,7 @@ import (
 
 func prepareTest(t *testing.T) func() {
 
-	conditions := getConditions()
+	conditions := u.GetConditions()
 
 	if len(conditions) != 0 {
 
@@ -24,7 +24,7 @@ func prepareTest(t *testing.T) func() {
 
 	return func() {
 
-		conditions := getConditions()
+		conditions := u.GetConditions()
 
 		if len(conditions) != 0 {
 
@@ -37,28 +37,42 @@ func prepareTest(t *testing.T) func() {
 	}
 }
 
-func addTestSubscriber[T any](t *testing.T, wg *sync.WaitGroup, name string, source Observable[T], expectedValues []T, expectedErrors []error) func() {
+func addTestSubscriber[T any](t *testing.T, wg *sync.WaitGroup, cleanup *u.Cleanup, name string, source Observable[T], expectedValues []T, expectedErrors []error) {
 
-	values, errors, done := source.Subscribe()
+	values, errors, unsubscribe := source.Subscribe()
+	cleanup.Add(unsubscribe)
 
 	wg.Add(2)
 
-	GoRun(func() {
+	u.GoRun(func() {
 		defer wg.Done()
+
+		position := 0
 
 		received := u.Of[T]()
 
 		for value := range values {
-			t.Logf("%s: Received value: '%v'", name, value)
+
+			t.Logf("%s: (%d) Received value: '%v'", name, position+1, value)
 			u.Append(&received, value)
+
+			if position >= len(expectedValues) {
+				t.Errorf("%s: (%d) Unexpected value: '%v' (expected only %d results)", name, position+1, value, len(expectedValues))
+			} else if !reflect.DeepEqual(value, expectedValues[position]) {
+				t.Errorf("%s: (%d) Unexpected value: '%v' (expected: '%v')", name, position+1, value, expectedValues[position])
+			}
+
+			position++
 		}
+
+		t.Logf("%s: Values complete (%d results)", name, position)
 
 		if !reflect.DeepEqual(received, expectedValues) {
 			t.Errorf("%s: Unexpected values: '%v' (expected: '%v')", name, received, expectedValues)
 		}
 	})
 
-	GoRun(func() {
+	u.GoRun(func() {
 		defer wg.Done()
 
 		received := u.Of[error]()
@@ -68,10 +82,10 @@ func addTestSubscriber[T any](t *testing.T, wg *sync.WaitGroup, name string, sou
 			u.Append(&received, err)
 		}
 
+		t.Logf("%s: Errors end-of-stream", name)
+
 		if !reflect.DeepEqual(received, expectedErrors) {
 			t.Errorf("%s: Unexpected errors: '%v' (expected: '%v')", name, received, expectedErrors)
 		}
 	})
-
-	return done
 }

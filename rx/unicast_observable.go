@@ -1,8 +1,10 @@
 package rx
 
-import u "alanpinder.com/rxgo/v2/utils"
+import (
+	u "alanpinder.com/rxgo/v2/utils"
+)
 
-type NewUnicastObserver[T any] = func(values chan<- T, errors chan<- error, done <-chan u.Never)
+type NewUnicastObserver[T any] = func(values chan<- T, errors chan<- error, unsubscribed <-chan u.Never)
 
 type UnicastObservable[T any] struct {
 	onNewObserver NewUnicastObserver[T]
@@ -18,18 +20,23 @@ func NewUnicastObservable[T any](onNewObserver NewUnicastObserver[T]) *UnicastOb
 
 func (x *UnicastObservable[T]) Subscribe() (<-chan T, <-chan error, func()) {
 
-	values, cleanupValues := NewChannel[T](0)
-	errors, cleanupErrors := NewChannel[error](0)
-	done, cleanupDone := NewChannel[u.Never](0)
+	valuesCleanup := u.NewCleanup("UnicastObservable values channel")
+	errorsCleanup := u.NewCleanup("UnicastObservable errors channel")
+	unsubscribedCleanup := u.NewCleanup("UnicastObservable unsubscribed channel")
 
-	clearCondition := AddCondition("Waiting for subscriber to complete")
+	values := u.NewChannel[T](valuesCleanup, 0)
+	errors := u.NewChannel[error](errorsCleanup, 0)
+	unsubscribed := u.NewChannel[u.Never](unsubscribedCleanup, 0)
+
+	onComplete := u.NewCondition("Waiting for subscriber to complete")
 
 	go func() {
-		defer cleanupValues()
-		defer cleanupErrors()
-		defer clearCondition()
-		x.onNewObserver(values, errors, done)
+		defer onComplete()
+		defer unsubscribedCleanup.Cleanup()
+		defer valuesCleanup.Cleanup()
+		defer errorsCleanup.Cleanup()
+		x.onNewObserver(values, errors, unsubscribed)
 	}()
 
-	return values, errors, cleanupDone
+	return values, errors, unsubscribedCleanup.Do
 }

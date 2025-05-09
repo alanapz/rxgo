@@ -1,147 +1,94 @@
 package rx
 
-// import (
-// 	"errors"
-// 	"fmt"
-// 	"maps"
-// 	"sync"
+import (
+	"maps"
+	"slices"
+	"sync"
+	"sync/atomic"
 
-// 	u "alanpinder.com/rxgo/v2/utils"
-// )
+	u "alanpinder.com/rxgo/v2/utils"
+)
 
-// type SubscriberId = uint64
+type subscriberId = uint64
 
-// type subscriberList[T any] struct {
-// 	lock             *sync.Mutex
-// 	nextSubscriberId uint64
-// 	subscribers      map[SubscriberId]*subscriber[T]
-// }
+type subscriberList[T any] struct {
+	lock             *sync.Mutex
+	nextSubscriberId atomic.Uint64
+	valueSubscribers map[subscriberId]*messageQueue[T]
+	errorSubscribers map[subscriberId]*messageQueue[error]
+}
 
-// func NeSubscriberList[T any](lock *sync.Mutex) *subscriberList[T] {
+func NewSubscriberList[T any](lock *sync.Mutex) *subscriberList[T] {
+	return &subscriberList[T]{
+		lock:             lock,
+		valueSubscribers: map[subscriberId]*messageQueue[T]{},
+		errorSubscribers: map[subscriberId]*messageQueue[error]{},
+	}
+}
 
-// 	u.Assert(lock != nil)
+func (x *subscriberList[T]) PostValue(value T) {
 
-// 	return &SubscriberList[T]{
-// 		lock:        lock,
-// 		subscribers: map[SubscriberId]*Subscriber[T]{},
-// 	}
-// }
+	u.AssertLocked(x.lock)
 
-// func (x *subscriberList[T]) PostValue(value T) {
+	for valueSubscriber := range maps.Values(x.valueSubscribers) {
+		valueSubscriber.Post(value)
+	}
+}
 
-// 	u.AssertLocked(x.lock)
+func (x *subscriberList[T]) ValuesComplete() {
 
-// 	postErrors := map[SubscriberId]error{}
+	u.AssertLocked(x.lock)
 
-// 	for subscriberId, subscriber := range x.subscribers {
-// 		if err := subscriber.PostValue(value); err != nil {
-// 			postErrors[subscriberId] = err
-// 		}
-// 	}
+	for valueSubscriber := range maps.Values(x.valueSubscribers) {
+		valueSubscriber.PostComplete()
+	}
+}
 
-// 	for subscriberId, postError := range postErrors {
-// 		x.disposeIfNecessary(subscriberId, postError, x.valueSubscribers)
-// 	}
-// }
+func (x *subscriberList[T]) PostError(value error) {
 
-// func (x *subscriberList[T]) PostError(value error) {
+	u.AssertLocked(x.lock)
 
-// 	u.AssertLocked(x.lock)
+	for errorSubscriber := range maps.Values(x.errorSubscribers) {
+		errorSubscriber.Post(value)
+	}
+}
 
-// 	postError := map[SubscriberId]error{}
+func (x *subscriberList[T]) ErrorsComplete() {
 
-// 	for subscriberId, subscriber := range x.errorSubscribers {
-// 		if err := subscriber.PostValue(value); err != nil {
-// 			postError[subscriberId] = err
-// 		}
-// 	}
+	u.AssertLocked(x.lock)
 
-// 	for subscriberId, postError := range postError {
-// 		x.disposeIfNecessary(subscriberId, postError, x.errorSubscribers)
-// 	}
-// }
+	for errorSubscriber := range maps.Values(x.errorSubscribers) {
+		errorSubscriber.PostComplete()
+	}
+}
 
-// func (x *subscriberList[T]) PostComplete(value error) {
+func (x *subscriberList[T]) AddSubscriber(values chan<- T, errors chan<- error, aborted <-chan u.Never, valuesCleanup *u.Cleanup, errorsCleanup *u.Cleanup, unsubscribedCleanup *u.Cleanup) {
 
-// 	u.AssertLocked(x.lock)
+	u.AssertLocked(x.lock)
 
-// 	postError := map[SubscriberId]error{}
+	subscriberId := x.nextSubscriberId.Add(1)
 
-// 	for subscriberId, subscriber := range x.errorSubscribers {
-// 		if err := subscriber.PostValue(value); err != nil {
-// 			postError[subscriberId] = err
-// 		}
-// 	}
+	valuesCleanup.Add(func() {
+		u.AssertLocked(x.lock)
+		delete(x.valueSubscribers, subscriberId)
+	})
 
-// 	for subscriberId, postError := range postError {
-// 		x.disposeIfNecessary(subscriberId, postError, x.errorSubscribers)
-// 	}
-// }
+	errorsCleanup.Add(func() {
+		u.AssertLocked(x.lock)
+		delete(x.errorSubscribers, subscriberId)
+	})
 
-// func (x *SubscriberList[T]) disposeIfNecessary(subscriberId SubscriberId, postError error, target map[SubscriberId]*MessageQueue[T]) {
+	for cleanup := range slices.Values(u.Of(valuesCleanup, errorsCleanup)) {
+		cleanup.AddPostCleanupHook(func() {
 
-// 	isEndOfStream := errors.Is(err, ErrEndOfStream)
-// 	isDone := errors.Is(err, ErrDisposed)
+			u.AssertLocked(x.lock)
 
-// 	if isEndOfStream || isDone {
+			if valuesCleanup.IsComplete() && errorsCleanup.IsComplete() {
+				unsubscribedCleanup.Do()
+			}
+		})
+	}
 
-// 		if existing, ok := x.valueSubscribers[subscriberId]; ok {
-// 			delete(x.valueSubscribers, subscriberId) // Safe, if we arrived here means queue will clean itself up
-// 			return
-// 		}
-// 	}
-
-// 	if isDone {
-
-// 	}
-
-// 	println(fmt.Sprintf("removing %d, error: %v", s))
-
-// 	if err == ErrEndOfStream {
-// 		x
-// 	}
-
-// 	u.AssertLocked(x.lock)
-
-// 	errors := map[*MessageQueue[T]]error{}
-
-// 	for subscriber := range maps.Values(x.valueSubscribers) {
-// 		if err := subscriber.PostValue(value); err != nil {
-// 			errors[subscriber] = err
-// 		}
-// 	}
-// }
-
-// func (x *SubscriberList[T]) PostError(err error) {
-
-// 	u.AssertLocked(x.lock)
-
-// 	errors := map[*Subscriber[T]]error{}
-
-// 	for subscriber := range maps.Values(x.subscribers) {
-// 		if err := subscriber.PostValue(value); err != nil {
-// 			errors[subscriber] = err
-// 		}
-// 	}
-// }
-
-// func (x *SubscriberList[T]) PostComplete() {
-
-// 	u.AssertLocked(x.lock)
-
-// 	errors := map[*Subscriber[T]]error{}
-
-// 	for subscriber := range maps.Values(x.subscribers) {
-// 		if err := subscriber.PostValue(value); err != nil {
-// 			errors[subscriber] = err
-// 		}
-// 	}
-// }
-
-// func (x *SubscriberList[T]) AddSubscriber(lock *sync.Mutex, valuesOut chan<- T, errorsOut chan<- error, done <-chan u.Never, cleanupValues func(), cleanupErrors func()) {
-
-// 	u.AssertLocked(x.lock)
-
-// 	x.nextSubscriberId++
-// 	x.subscribers[x.nextSubscriberId] = subscriber
-// }
+	x.valueSubscribers[subscriberId] = NewMessageQueue(x.lock, values, aborted, valuesCleanup)
+	x.errorSubscribers[subscriberId] = NewMessageQueue(x.lock, errors, aborted, errorsCleanup)
+}

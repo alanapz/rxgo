@@ -7,46 +7,39 @@ import (
 	u "alanpinder.com/rxgo/v2/utils"
 )
 
-var ErrDisposed = errors.New("Already disposed")
-var ErrEndOfStream = errors.New("End of stream")
+var ErrEndOfStream = errors.New("end of stream")
+var ErrAborted = errors.New("aborted")
 
 type messageQueue[T any] struct {
-	lock      *sync.Mutex
-	channel   chan<- T
-	done      <-chan u.Never
-	cleanup   func(error)
-	queue     *u.Queue[u.Optional[T]]
-	wakeup    *sync.Cond
-	revision  uint64
-	result    error
-	cleanedUp sync.Once
+	lock             *sync.Mutex
+	channel          chan<- T
+	aborted          <-chan u.Never
+	cleanup          *u.Cleanup
+	queue            *u.Queue[u.Optional[T]]
+	wakeup           *sync.Cond
+	revision         uint64
+	result           error
+	onWorkerComplete func()
 }
 
-func NewMessageQueue[T any](lock *sync.Mutex, channel chan<- T, done <-chan u.Never, cleanup func(error)) *messageQueue[T] {
+func NewMessageQueue[T any](lock *sync.Mutex, channel chan<- T, aborted <-chan u.Never, cleanup *u.Cleanup) *messageQueue[T] {
 
 	queue := &messageQueue[T]{
-		lock:    lock,
-		channel: channel,
-		done:    done,
-		cleanup: cleanup,
-		queue:   u.NewQueue[u.Optional[T]](),
-		wakeup:  sync.NewCond(lock),
+		lock:             lock,
+		channel:          channel,
+		aborted:          aborted,
+		cleanup:          cleanup,
+		queue:            &u.Queue[u.Optional[T]]{},
+		wakeup:           sync.NewCond(lock),
+		onWorkerComplete: u.NewCondition("Waiting for message queue worker to complete ..."),
 	}
 
-	// We always start worker eagerly, so as not to avoid missec cleanups when disposing without events
-	GoRun(queue.runWorker)
+	// We always start worker eagerly, so as not to avoid missed cleanups when disposing without events
+	u.GoRun(queue.runWorker)
 	return queue
 }
 
-func (x *messageQueue[T]) PostValue(value T) error {
-	return x.doPostValue(u.NewOptional(value))
-}
-
-func (x *messageQueue[T]) PostComplete() error {
-	return x.doPostValue(u.EmptyOptional[T]())
-}
-
-func (x *messageQueue[T]) doPostValue(value u.Optional[T]) error {
+func (x *messageQueue[T]) Post(value T) error {
 
 	u.AssertLocked(x.lock)
 
@@ -54,14 +47,29 @@ func (x *messageQueue[T]) doPostValue(value u.Optional[T]) error {
 		return x.result
 	}
 
-	x.queue.Push(value)
+	x.queue.Push(u.Optional[T]{HasValue: true, Value: value})
 	x.revision++
 	x.wakeup.Broadcast()
 
 	return nil
 }
 
-func (x *messageQueue[T]) Dispose(err error) error {
+func (x *messageQueue[T]) PostComplete() error {
+
+	u.AssertLocked(x.lock)
+
+	if x.result != nil {
+		return x.result
+	}
+
+	x.queue.Push(u.Optional[T]{})
+	x.revision++
+	x.wakeup.Broadcast()
+
+	return nil
+}
+
+func (x *messageQueue[T]) DisposeAsync(err error) error {
 
 	u.AssertLocked(x.lock)
 
@@ -74,6 +82,11 @@ func (x *messageQueue[T]) Dispose(err error) error {
 	x.wakeup.Broadcast()
 
 	return nil
+}
+
+func (x *messageQueue[T]) Result() error {
+	u.AssertLocked(x.lock)
+	return x.result
 }
 
 func (x *messageQueue[T]) runWorker() {
@@ -92,12 +105,12 @@ func (x *messageQueue[T]) runWorker() {
 		}
 	}
 
-	x.disposeWorker(err)()
+	x.disposeWorker(err)
 }
 
-func (x *messageQueue[T]) disposeWorker(err error) func() {
+func (x *messageQueue[T]) disposeWorker(err error) {
 
-	u.Assert(err != nil)
+	u.AssertUnlocked(x.lock)
 
 	x.lock.Lock()
 	defer x.lock.Unlock()
@@ -106,12 +119,8 @@ func (x *messageQueue[T]) disposeWorker(err error) func() {
 		x.result = err
 	}
 
-	return func() {
-		u.AssertUnlocked(x.lock)
-		x.cleanedUp.Do(func() {
-			x.cleanup(x.result)
-		})
-	}
+	defer x.onWorkerComplete()
+	x.cleanup.Do()
 }
 
 func (x *messageQueue[T]) waitForNextRevision(current *uint64) error {
@@ -154,8 +163,8 @@ func (x *messageQueue[T]) runWorkerIteration() error {
 			return nil
 		}
 
-		if u.Selection(selectItems...) {
-			return ErrDisposed
+		if u.Selection(selectItems...) == u.DoneResult {
+			return ErrAborted
 		}
 	}
 }
@@ -181,6 +190,6 @@ func (x *messageQueue[T]) workerUpdateState(selectItems *[]u.SelectItem) error {
 		return ErrEndOfStream
 	}
 
-	u.Append(selectItems, u.SelectDone(x.done), u.SelectSend(x.channel, msg.Value))
+	u.Append(selectItems, u.SelectDone(x.aborted), u.SelectSend(x.channel, msg.Value))
 	return nil
 }

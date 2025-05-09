@@ -2,7 +2,7 @@ package rx
 
 import u "alanpinder.com/rxgo/v2/utils"
 
-func Filter[T any](filter func(T) bool) OperatorFunction[T, T] {
+func Tap[T any](tapValue func(T), tapError func(error)) OperatorFunction[T, T] {
 	return func(source Observable[T]) Observable[T] {
 		return NewUnicastObservable(func(valuesOut chan<- T, errorsOut chan<- error, unsubscribed <-chan u.Never) {
 			drainObservable(drainObservableArgs[T]{
@@ -14,8 +14,12 @@ func Filter[T any](filter func(T) bool) OperatorFunction[T, T] {
 					return drainObservableLoopContext[T]{
 						onSelection: func(valueMsg *u.SelectReceiveMessage[T], errorMsg *u.SelectReceiveMessage[error]) AfterSelectionResult {
 
-							if valueMsg.HasValue && !filter(valueMsg.Value) {
-								return DropMessage
+							if tapValue != nil && valueMsg.HasValue {
+								tapValue(valueMsg.Value)
+							}
+
+							if tapError != nil && errorMsg.HasValue {
+								tapError(errorMsg.Value)
 							}
 
 							return ContinueMessage

@@ -1,24 +1,32 @@
 package rx
 
 import (
-	"slices"
+	"fmt"
 	"sync"
 
 	u "alanpinder.com/rxgo/v2/utils"
 )
 
 func Merge[T any](sources ...Observable[T]) Observable[T] {
-	return NewUnicastObservable(func(valuesOut chan<- T, errorsOut chan<- error, done <-chan u.Never) {
+	return NewUnicastObservable(func(valuesOut chan<- T, errorsOut chan<- error, unsubscribed <-chan u.Never) {
 
 		var wg sync.WaitGroup
 
-		for source := range slices.Values(sources) {
+		for index, source := range sources {
 
 			wg.Add(1)
 
-			GoRun(func() {
+			onInnerObservableComplete := u.NewCondition(fmt.Sprintf("Waiting for inner observable for source #%d to complete", index))
+
+			u.GoRun(func() {
 				defer wg.Done()
-				drainObservable(drainObservableArgs[T]{source: source, valuesOut: valuesOut, errorsOut: errorsOut, done: done})
+				defer onInnerObservableComplete()
+				drainObservable(drainObservableArgs[T]{
+					source:       source,
+					valuesOut:    valuesOut,
+					errorsOut:    errorsOut,
+					unsubscribed: unsubscribed,
+				})
 			})
 		}
 

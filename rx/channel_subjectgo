@@ -6,7 +6,7 @@ import (
 	u "alanpinder.com/rxgo/v2/utils"
 )
 
-type AutoCompleteSubject[T any] struct {
+type ChannelSubject[T any] struct {
 	lock        *sync.Mutex
 	subscribers *subscriberList[T]
 	signalled   bool
@@ -14,9 +14,9 @@ type AutoCompleteSubject[T any] struct {
 	err         error
 }
 
-var _ Observable[any] = (*AutoCompleteSubject[any])(nil)
+var _ Subject[any] = (*ChannelSubject[any])(nil)
 
-func NewAutoCompleteSubject[T any]() *AutoCompleteSubject[T] {
+func NewAutoCompleteSubject[T any]() *ChannelSubject[T] {
 
 	var lock sync.Mutex
 
@@ -24,6 +24,9 @@ func NewAutoCompleteSubject[T any]() *AutoCompleteSubject[T] {
 		lock:        &lock,
 		subscribers: NewSubscriberList[T](&lock),
 	}
+}
+
+func (x *AutoCompleteSubject[T]) PostValue(value T) {
 }
 
 func (x *AutoCompleteSubject[T]) PostValue(value T) {
@@ -39,8 +42,22 @@ func (x *AutoCompleteSubject[T]) PostValue(value T) {
 	x.value = &value
 	x.subscribers.PostValue(value)
 
-	x.subscribers.ValuesComplete()
-	x.subscribers.ErrorsComplete()
+	x.subscribers.PostValuesComplete()
+	x.subscribers.PostErrorsComplete()
+}
+
+func (x *AutoCompleteSubject[T]) PostValuesComplete() {
+
+	x.lock.Lock()
+	defer x.lock.Unlock()
+
+	if x.signalled {
+		return
+	}
+
+	x.signalled = true
+	x.subscribers.PostValuesComplete()
+	x.subscribers.PostErrorsComplete()
 }
 
 func (x *AutoCompleteSubject[T]) PostError(err error) {
@@ -56,8 +73,12 @@ func (x *AutoCompleteSubject[T]) PostError(err error) {
 	x.err = err
 	x.subscribers.PostError(err)
 
-	x.subscribers.ValuesComplete()
-	x.subscribers.ErrorsComplete()
+	x.subscribers.PostValuesComplete()
+	x.subscribers.PostErrorsComplete()
+}
+
+func (x *AutoCompleteSubject[T]) PostErrorsComplete() {
+	x.PostValuesComplete()
 }
 
 func (x *AutoCompleteSubject[T]) Subscribe() (<-chan T, <-chan error, func()) {

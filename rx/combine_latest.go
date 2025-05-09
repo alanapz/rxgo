@@ -1,146 +1,196 @@
 package rx
 
-// import (
-// 	"slices"
-// )
+import (
+	"fmt"
+	"maps"
+	"slices"
 
-// type combineLatestCtx[T any] struct {
-// 	ValuesOut chan<- []T
-// 	ErrorsOut chan<- error
-// 	Done      <-chan Never
-// 	Items     []*combineLatestItem[T]
-// }
+	u "alanpinder.com/rxgo/v2/utils"
+)
 
-// type combineLatestItem[T any] struct {
-// 	ValuesIn    <-chan T
-// 	ErrorsIn    <-chan error
-// 	Unsubscribe func()
-// 	Disposed    bool
-// 	Emitted     bool
-// 	LastEmitted T
-// 	//
-// 	IncomingValue SelectReceiveResult[T]
-// 	IncomingError SelectReceiveResult[error]
-// }
+type combineLatestCtx[T any] struct {
+	valuesOut    chan<- []CombineLatestResult[T]
+	errorsOut    chan<- error
+	unsubscribed <-chan u.Never
+	sources      map[int]*combineLatestSource[T]
+}
 
-// func CombineLatest[T any](sources ...Observable[T]) Observable[[]T] {
-// 	return NewUnicastObservable(func(valuesOut chan<- []T, errorsOut chan<- error, done <-chan Never) {
+type combineLatestSource[T any] struct {
+	valuesIn    <-chan T
+	errorsIn    <-chan error
+	unsubscribe func()
+	disposed    bool // Whether values AND error are EOF, or done is signalled
+	hasValue    bool
+	value       T
+	complete    bool // Whether values only (not error!) is EOF
+}
 
-// 		ctx := combineLatestCtx[T]{
-// 			ValuesOut: valuesOut,
-// 			ErrorsOut: errorsOut,
-// 			Done:      done,
-// 			Items:     make([]*combineLatestItem[T], len(sources)),
-// 		}
+func CombineLatest[T any](sources ...Observable[T]) Observable[[]CombineLatestResult[T]] {
+	return NewUnicastObservable(func(valuesOut chan<- []CombineLatestResult[T], errorsOut chan<- error, unsubscribed <-chan u.Never) {
 
-// 		for index, source := range sources {
-// 			valuesIn, errorsIn, unsubscribe := source.Subscribe()
-// 			defer unsubscribe()
+		ctx := combineLatestCtx[T]{
+			valuesOut:    valuesOut,
+			errorsOut:    errorsOut,
+			unsubscribed: unsubscribed,
+			sources:      map[int]*combineLatestSource[T]{},
+		}
 
-// 			ctx.Items[index] = &combineLatestItem[T]{
-// 				ValuesIn:    valuesIn,
-// 				ErrorsIn:    errorsIn,
-// 				Unsubscribe: unsubscribe,
-// 			}
-// 		}
+		for index, source := range sources {
+			valuesIn, errorsIn, unsubscribe := source.Subscribe()
+			defer unsubscribe()
 
-// 		for {
-// 			if ctx.SelectNext() {
-// 				return
-// 			}
+			ctx.sources[index] = &combineLatestSource[T]{
+				valuesIn:    valuesIn,
+				errorsIn:    errorsIn,
+				unsubscribe: unsubscribe,
+			}
+		}
 
-// 			if ctx.HandleErrors() {
-// 				return
-// 			}
+		for {
 
-// 			if ctx.HandleResults() {
-// 				return
-// 			}
+			valueMessages := map[int]*u.SelectReceiveMessage[T]{}
+			errorMessages := map[int]*u.SelectReceiveMessage[error]{}
 
-// 			if ctx.HandleEndOfStream() {
-// 				return
-// 			}
-// 		}
-// 	})
-// }
+			if ctx.selectNext(valueMessages, errorMessages) == u.DoneResult {
+				return
+			}
 
-// // combineLatestSelect returns isDone (ie: true for quit, false to keep going)
-// func (x *combineLatestCtx[T]) SelectNext() bool {
+			if ctx.handleErrors(errorMessages) == u.DoneResult {
+				return
+			}
 
-// 	selections := []SelectItem{}
+			if ctx.handleValues(valueMessages) == u.DoneResult {
+				return
+			}
 
-// 	Append(&selections, SelectDone(x.Done))
+			if ctx.handleEndOfStream() == u.DoneResult {
+				return
+			}
+		}
+	})
+}
 
-// 	for item := range slices.Values(x.Items) {
-// 		if !item.Disposed {
-// 			Append(&selections, SelectReceiveInto(item.ValuesIn, &item.IncomingValue))
-// 			Append(&selections, SelectReceiveInto(item.ErrorsIn, &item.IncomingError))
-// 		}
-// 	}
+// combineLatestSelect returns isDone (ie: true for quit, false to keep going)
+func (x *combineLatestCtx[T]) selectNext(valueMessages map[int]*u.SelectReceiveMessage[T], errorMessages map[int]*u.SelectReceiveMessage[error]) u.SelectResult {
 
-// 	return Selection(selections...)
-// }
+	selections := u.Of(u.SelectDone(x.unsubscribed))
 
-// func (x *combineLatestCtx[T]) HandleErrors() bool {
+	for index, source := range x.sources {
 
-// 	errors := []error{}
+		if source.disposed {
+			continue
+		}
 
-// 	for item := range slices.Values(x.Items) {
-// 		if !item.Disposed && item.IncomingError.Valid {
-// 			Append(&errors, item.IncomingError.Value)
-// 		}
-// 	}
+		var valueMsg u.SelectReceiveMessage[T]
+		var errorMsg u.SelectReceiveMessage[error]
 
-// 	if len(errors) == 0 {
-// 		return false
-// 	}
+		if source.valuesIn != nil {
+			u.Append(&selections, u.SelectReceive(&source.valuesIn, &valueMsg))
+			valueMessages[index] = &valueMsg
+		}
 
-// 	for err := range slices.Values(errors) {
-// 		if Selection(SelectDone(x.Done), SelectSend(x.ErrorsOut, err)) {
-// 			break
-// 		}
-// 	}
+		if source.errorsIn != nil {
+			u.Append(&selections, u.SelectReceive(&source.errorsIn, &errorMsg))
+			errorMessages[index] = &errorMsg
+		}
+	}
 
-// 	return true
-// }
+	if len(valueMessages) == 0 && len(errorMessages) == 0 {
+		return u.DoneResult
+	}
 
-// func (x *combineLatestCtx[T]) HandleResults() bool {
+	return u.Selection(selections...)
+}
 
-// 	for item := range slices.Values(x.Items) {
-// 		if !item.Disposed && item.IncomingValue.Valid {
-// 			item.Emitted = true
-// 			item.LastEmitted = item.IncomingValue.Value
-// 		}
-// 	}
+func (x *combineLatestCtx[T]) handleErrors(errorMessages map[int]*u.SelectReceiveMessage[error]) u.SelectResult {
 
-// 	values := make([]T, len(x.Items))
+	errors := []error{}
 
-// 	for index, item := range x.Items {
-// 		if !item.Emitted {
-// 			return false
-// 		}
-// 		values[index] = item.LastEmitted
-// 	}
+	for msg := range maps.Values(errorMessages) {
+		if msg.HasValue {
+			u.Append(&errors, msg.Value)
+		}
+	}
 
-// 	return Selection(SelectDone(x.Done), SelectSend(x.ValuesOut, values))
-// }
+	if len(errors) == 0 {
+		return u.ContinueResult
+	}
 
-// func (x *combineLatestCtx[T]) HandleEndOfStream() bool {
+	for err := range slices.Values(errors) {
+		if u.Selection(u.SelectDone(x.unsubscribed), u.SelectSend(x.errorsOut, err)) == u.DoneResult {
+			return u.DoneResult
+		}
+	}
 
-// 	for item := range slices.Values(x.Items) {
-// 		if !item.Disposed && (item.IncomingValue.EndOfStream || item.IncomingError.EndOfStream) {
-// 			item.Unsubscribe()
-// 			item.ValuesIn = nil
-// 			item.ErrorsIn = nil
-// 			item.Disposed = true
-// 		}
-// 	}
+	return u.DoneResult
+}
 
-// 	for item := range slices.Values(x.Items) {
-// 		if !item.Disposed {
-// 			return false
-// 		}
-// 	}
+func (x *combineLatestCtx[T]) handleValues(valueMessages map[int]*u.SelectReceiveMessage[T]) u.SelectResult {
 
-// 	return true
-// }
+	var notifyRequired bool
+
+	for index, msg := range valueMessages {
+		if msg.HasValue {
+			source := x.sources[index]
+			source.hasValue = true
+			source.value = msg.Value
+			notifyRequired = true
+		}
+	}
+
+	for source := range maps.Values(x.sources) {
+		if !source.disposed && source.valuesIn == nil && !source.complete {
+			source.complete = true
+			notifyRequired = true
+		}
+	}
+
+	if !notifyRequired {
+		return u.ContinueResult
+	}
+
+	msgToSend := make([]CombineLatestResult[T], len(x.sources))
+
+	for index, source := range x.sources {
+		msgToSend[index] = CombineLatestResult[T]{HasValue: source.hasValue, Value: source.value, Complete: source.complete}
+	}
+
+	return u.Selection(u.SelectDone(x.unsubscribed), u.SelectSend(x.valuesOut, msgToSend))
+}
+
+func (x *combineLatestCtx[T]) handleEndOfStream() u.SelectResult {
+
+	for source := range maps.Values(x.sources) {
+		if !source.disposed && source.valuesIn == nil && source.errorsIn == nil {
+			source.disposed = true
+			source.unsubscribe()
+		}
+	}
+
+	for source := range maps.Values(x.sources) {
+		if !source.disposed {
+			return u.ContinueResult
+		}
+	}
+
+	return u.DoneResult
+}
+
+type CombineLatestResult[T any] struct {
+	HasValue bool
+	Value    T
+	Complete bool
+}
+
+func (x CombineLatestResult[T]) String() string {
+	if x.HasValue && x.Complete {
+		return fmt.Sprintf("{%v, complete}", x.Value)
+	}
+	if x.HasValue {
+		return fmt.Sprintf("{%v}", x.Value)
+	}
+	if x.Complete {
+		return "{complete}"
+	}
+	return "{}"
+}

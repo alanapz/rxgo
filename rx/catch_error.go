@@ -2,23 +2,23 @@ package rx
 
 import u "alanpinder.com/rxgo/v2/utils"
 
-func Filter[T any](filter func(T) bool) OperatorFunction[T, T] {
+func CatchError[T any](projection func(error) Observable[T]) OperatorFunction[T, T] {
 	return func(source Observable[T]) Observable[T] {
 		return NewUnicastObservable(func(valuesOut chan<- T, errorsOut chan<- error, unsubscribed <-chan u.Never) {
 			drainObservable(drainObservableArgs[T]{
 				source:       source,
 				valuesOut:    valuesOut,
-				errorsOut:    errorsOut,
+				errorsOut:    nil, // Not used
 				unsubscribed: unsubscribed,
 				newLoopContext: func() drainObservableLoopContext[T] {
 					return drainObservableLoopContext[T]{
-						onSelection: func(valueMsg *u.SelectReceiveMessage[T], errorMsg *u.SelectReceiveMessage[error]) AfterSelectionResult {
-
-							if valueMsg.HasValue && !filter(valueMsg.Value) {
-								return DropMessage
-							}
-
-							return ContinueMessage
+						onError: func(_ chan<- error, _ <-chan u.Never, value error) u.SelectResult {
+							return drainObservable(drainObservableArgs[T]{
+								source:       projection(value),
+								valuesOut:    valuesOut,
+								errorsOut:    errorsOut,
+								unsubscribed: unsubscribed,
+							})
 						},
 					}
 				},
