@@ -4,7 +4,13 @@ import (
 	u "alanpinder.com/rxgo/v2/utils"
 )
 
-type NewUnicastObserver[T any] = func(downstream chan<- T, unsubscribed <-chan u.Never)
+type UnicastObserverArgs[T any] struct {
+	Environment            *RxEnvironment
+	Downstream             chan<- T
+	DownstreamUnsubscribed <-chan u.Never
+}
+
+type NewUnicastObserver[T any] = func(args UnicastObserverArgs[T])
 
 type UnicastObservable[T any] struct {
 	onNewObserver NewUnicastObserver[T]
@@ -18,18 +24,16 @@ func NewUnicastObservable[T any](onNewObserver NewUnicastObserver[T]) *UnicastOb
 	}
 }
 
-func (x *UnicastObservable[T]) Subscribe() (<-chan T, func()) {
+func (x *UnicastObservable[T]) Subscribe(env *RxEnvironment) (<-chan T, func()) {
 
-	var unsubscribedCleanup, downstreamCleanup u.Event
-
-	unsubscribed := u.NewChannel[u.Never](&unsubscribedCleanup, 0)
-	downstream := u.NewChannel[T](&downstreamCleanup, 0)
+	downstream, sendDownstreamEndOfStream := NewChannel[T](env, 0)
+	downstreamUnsubscribed, triggerDownstreamUnsubscribed := NewChannel[u.Never](env, 0)
 
 	u.GoRun(func() {
-		defer unsubscribedCleanup.Emit()
-		defer downstreamCleanup.Emit()
-		x.onNewObserver(downstream, unsubscribed)
+		defer triggerDownstreamUnsubscribed.Resolve()
+		defer sendDownstreamEndOfStream.Resolve()
+		x.onNewObserver(UnicastObserverArgs[T]{Environment: env, Downstream: downstream, DownstreamUnsubscribed: downstreamUnsubscribed})
 	})
 
-	return downstream, unsubscribedCleanup.Emit
+	return downstream, triggerDownstreamUnsubscribed.Resolve
 }

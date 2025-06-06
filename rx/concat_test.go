@@ -9,7 +9,7 @@ import (
 
 func TestConcat(t *testing.T) {
 
-	cleanupTest := prepareTest(t)
+	cleanupTest, env := prepareTest(t)
 	defer cleanupTest()
 
 	source := Concat(
@@ -21,9 +21,9 @@ func TestConcat(t *testing.T) {
 	var wg sync.WaitGroup
 	var cleanup u.Event
 
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{name: "s1", t: t, wg: &wg, source: source, expected: u.Of(1, 2, 3, 4, 5, 6, 7, 8, 9, 14, 16, 18)}))
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{name: "s2", t: t, wg: &wg, source: source, expected: u.Of(1, 2, 3, 4, 5, 6, 7, 8, 9, 14, 16, 18)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s1", t: t, wg: &wg, source: source, expected: u.Of(1, 2, 3, 4, 5, 6, 7, 8, 9, 14, 16, 18)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s2", t: t, wg: &wg, source: source, expected: u.Of(1, 2, 3, 4, 5, 6, 7, 8, 9, 14, 16, 18)}))
 
 	wg.Wait()
-	cleanup.Emit()
+	cleanup.Resolve()
 }

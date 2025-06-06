@@ -5,7 +5,7 @@ import (
 )
 
 type Observable[T any] interface {
-	Subscribe() (<-chan T, func())
+	Subscribe(env *RxEnvironment) (<-chan T, func())
 }
 
 type AfterSelectionResult string
@@ -16,10 +16,11 @@ const StopAndContinueNext AfterSelectionResult = "returnContinue"
 const StopAndReturnDone AfterSelectionResult = "returnDone"
 
 type drainObservableArgs[T any] struct {
-	source         Observable[T]
-	downstream     chan<- T
-	unsubscribed   <-chan u.Never
-	newLoopContext func() drainObservableLoopContext[T]
+	Environment            *RxEnvironment
+	Source                 Observable[T]
+	Downstream             chan<- T
+	DownstreamUnsubscribed <-chan u.Never
+	NewLoopContext         func() drainObservableLoopContext[T]
 }
 
 type drainObservableLoopContext[T any] struct {
@@ -31,13 +32,11 @@ type drainObservableLoopContext[T any] struct {
 
 func drainObservable[T any](args drainObservableArgs[T]) u.SelectResult {
 
-	source, downstream, unsubscribed, newLoopContext := args.source, args.downstream, args.unsubscribed, args.newLoopContext
-
-	u.Require(source, unsubscribed)
+	u.Require(args.Environment, args.Source, args.DownstreamUnsubscribed)
 
 	// First subscribe to source observable
-	upstream, unsubscribe := source.Subscribe()
-	defer unsubscribe()
+	upstream, unsubscribeFromUpstream := args.Source.Subscribe(args.Environment)
+	defer unsubscribeFromUpstream()
 
 	for {
 
@@ -45,11 +44,11 @@ func drainObservable[T any](args drainObservableArgs[T]) u.SelectResult {
 			return u.ContinueResult
 		}
 
-		loopCtx := buildNewLoopContext(newLoopContext)
+		loopCtx := buildNewLoopContext(args.NewLoopContext)
 
 		var msg u.SelectReceiveMessage[T]
 
-		selectionItems := u.Of(u.SelectDone(unsubscribed), u.SelectReceive(&upstream, &msg))
+		selectionItems := u.Of(u.SelectDone(args.DownstreamUnsubscribed), u.SelectReceive(&upstream, &msg))
 
 		if loopCtx.beforeSelection(&selectionItems) == u.DoneResult {
 			return u.DoneResult
@@ -72,7 +71,7 @@ func drainObservable[T any](args drainObservableArgs[T]) u.SelectResult {
 			return u.DoneResult
 		}
 
-		if msg.HasValue && loopCtx.sendValue(downstream, unsubscribed, msg.Value) == u.DoneResult {
+		if msg.HasValue && loopCtx.sendValue(args.Downstream, args.DownstreamUnsubscribed, msg.Value) == u.DoneResult {
 			return u.DoneResult
 		}
 	}
@@ -92,8 +91,8 @@ func buildNewLoopContext[T any](newLoopContext func() drainObservableLoopContext
 		beforeSend: u.MustCoalesce(loopContext.beforeSend, func(_ *u.SelectReceiveMessage[T]) u.SelectResult {
 			return u.ContinueResult
 		}),
-		sendValue: u.MustCoalesce(loopContext.sendValue, func(downstream chan<- T, unsubscribed <-chan u.Never, value T) u.SelectResult {
-			return u.Selection(u.SelectDone(unsubscribed), u.SelectSend(downstream, value))
+		sendValue: u.MustCoalesce(loopContext.sendValue, func(downstream chan<- T, downstreamUnsubscribed <-chan u.Never, value T) u.SelectResult {
+			return u.Selection(u.SelectDone(downstreamUnsubscribed), u.SelectSend(downstream, value))
 		}),
 	}
 }

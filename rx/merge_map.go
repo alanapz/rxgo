@@ -9,15 +9,16 @@ import (
 
 func MergeMap[T any, U any](projection func(T) Observable[U]) OperatorFunction[T, U] {
 	return func(source Observable[T]) Observable[U] {
-		return NewUnicastObservable(func(downstream chan<- U, unsubscribed <-chan u.Never) {
+		return NewUnicastObservable(func(args UnicastObserverArgs[U]) {
 
 			var wg sync.WaitGroup
 
 			drainObservable(drainObservableArgs[T]{
-				source:       source,
-				downstream:   nil, // Not used
-				unsubscribed: unsubscribed,
-				newLoopContext: func() drainObservableLoopContext[T] {
+				Environment:            args.Environment,
+				Source:                 source,
+				Downstream:             nil, // Not used
+				DownstreamUnsubscribed: args.DownstreamUnsubscribed,
+				NewLoopContext: func() drainObservableLoopContext[T] {
 					return drainObservableLoopContext[T]{
 						sendValue: func(_ chan<- T, _ <-chan u.Never, value T) u.SelectResult {
 
@@ -25,13 +26,14 @@ func MergeMap[T any, U any](projection func(T) Observable[U]) OperatorFunction[T
 
 							onInnerObservableComplete := u.NewCondition(fmt.Sprintf("Waiting for inner observable for value '%v' to complete", value))
 
-							u.GoRun(func() {
+							args.Environment.Execute(func() {
 								defer wg.Done()
 								defer onInnerObservableComplete()
 								drainObservable(drainObservableArgs[U]{
-									source:       projection(value),
-									downstream:   downstream,
-									unsubscribed: unsubscribed,
+									Environment:            args.Environment,
+									Source:                 projection(value),
+									Downstream:             args.Downstream,
+									DownstreamUnsubscribed: args.DownstreamUnsubscribed,
 								})
 							})
 

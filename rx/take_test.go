@@ -9,7 +9,7 @@ import (
 
 func TestTake(t *testing.T) {
 
-	cleanupTest := prepareTest(t)
+	cleanupTest, env := prepareTest(t)
 	defer cleanupTest()
 
 	source := Pipe(TimerInSeconds(2), Count[int](), Take[int](4))
@@ -17,20 +17,20 @@ func TestTake(t *testing.T) {
 	var wg sync.WaitGroup
 	var cleanup u.Event
 
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{name: "s1", t: t, wg: &wg, source: source, expected: u.Of(1, 2, 3, 4)}))
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{name: "s2", t: t, wg: &wg, source: source, expected: u.Of(1, 2, 3, 4)}))
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{name: "s3", t: t, wg: &wg, source: source, expected: u.Of(1, 2, 3, 4)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s1", t: t, wg: &wg, source: source, expected: u.Of(1, 2, 3, 4)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s2", t: t, wg: &wg, source: source, expected: u.Of(1, 2, 3, 4)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s3", t: t, wg: &wg, source: source, expected: u.Of(1, 2, 3, 4)}))
 
 	wg.Wait()
-	cleanup.Emit()
+	cleanup.Resolve()
 }
 
 func TestTakeWithCustomObservable(t *testing.T) {
 
-	cleanupTest := prepareTest(t)
+	cleanupTest, env := prepareTest(t)
 	defer cleanupTest()
 
-	source := Pipe(NewUnicastObservable(func(downstream chan<- int, unsubscribed <-chan u.Never) {
+	source := Pipe(NewUnicastObservable(func(args UnicastObserverArgs[int]) {
 		t.Logf("New observer subscribed")
 
 		counter := 0
@@ -38,10 +38,10 @@ func TestTakeWithCustomObservable(t *testing.T) {
 		for {
 			counter++
 			select {
-			case <-unsubscribed:
+			case <-args.DownstreamUnsubscribed:
 				t.Logf("New observer unsubscribed")
 				return
-			case downstream <- counter:
+			case args.Downstream <- counter:
 				continue
 			}
 		}
@@ -51,10 +51,10 @@ func TestTakeWithCustomObservable(t *testing.T) {
 	var wg sync.WaitGroup
 	var cleanup u.Event
 
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{name: "s1", t: t, wg: &wg, source: source, expected: u.Of(1, 2, 3, 4)}))
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{name: "s2", t: t, wg: &wg, source: source, expected: u.Of(1, 2, 3, 4)}))
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{name: "s3", t: t, wg: &wg, source: source, expected: u.Of(1, 2, 3, 4)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s1", t: t, wg: &wg, source: source, expected: u.Of(1, 2, 3, 4)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s2", t: t, wg: &wg, source: source, expected: u.Of(1, 2, 3, 4)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s3", t: t, wg: &wg, source: source, expected: u.Of(1, 2, 3, 4)}))
 
 	wg.Wait()
-	cleanup.Emit()
+	cleanup.Resolve()
 }

@@ -8,6 +8,7 @@ import (
 )
 
 type ReplaySubject[T any] struct {
+	env         *RxEnvironment
 	lock        *sync.Mutex
 	subscribers *subscriberList[T]
 	window      int
@@ -16,49 +17,47 @@ type ReplaySubject[T any] struct {
 
 var _ Subject[any] = (*ReplaySubject[any])(nil)
 
-func NewReplaySubject[T any](window int) *ReplaySubject[T] {
+func NewReplaySubject[T any](env *RxEnvironment, window int) *ReplaySubject[T] {
 
 	var lock sync.Mutex
 
 	return &ReplaySubject[T]{
+		env:         env,
 		lock:        &lock,
-		subscribers: NewSubscriberList[T](&lock),
+		subscribers: NewSubscriberList[T](env, &lock),
 		window:      window,
-		history:     []T{},
 	}
 }
 
-func (x *ReplaySubject[T]) Next(value T) bool {
+func (x *ReplaySubject[T]) Next(values ...T) error {
 
 	x.lock.Lock()
 	defer x.lock.Unlock()
 
-	if !x.subscribers.Next(value) {
-		return false
+	if err := x.subscribers.Next(values...); err != nil {
+		return err
 	}
 
-	u.Append(&x.history, value)
+	u.Append(&x.history, values...)
 	x.history = x.history[max(0, len(x.history)-x.window):len(x.history)]
-	return true
+	return nil
 }
 
-func (x *ReplaySubject[T]) EndOfStream() {
+func (x *ReplaySubject[T]) EndOfStream() error {
 
 	x.lock.Lock()
 	defer x.lock.Unlock()
 
-	x.subscribers.EndOfStream()
+	return x.subscribers.EndOfStream()
 }
 
-func (x *ReplaySubject[T]) Subscribe() (<-chan T, func()) {
+func (x *ReplaySubject[T]) Subscribe(env *RxEnvironment) (<-chan T, func()) {
 
 	x.lock.Lock()
 	defer x.lock.Unlock()
 
-	var unsubscribedCleanup, downstreamCleanup u.Event
-
-	unsubscribed := u.NewChannel[u.Never](&unsubscribedCleanup, 0)
-	downstream := u.NewChannel[T](&downstreamCleanup, 0)
+	downstream, sendDownstreamEndOfStream := NewChannel[T](env, 0)
+	downstreamUnsubscribed, triggerDownstreamUnsubscribed := NewChannel[u.Never](env, 0)
 
 	var initial []messageValue[T]
 
@@ -70,13 +69,19 @@ func (x *ReplaySubject[T]) Subscribe() (<-chan T, func()) {
 		u.Append(&initial, messageValue[T]{endOfStream: true})
 	}
 
-	x.subscribers.AddSubscriber(downstream, unsubscribed, &downstreamCleanup, &unsubscribedCleanup, initial)
+	x.subscribers.AddSubscriber(downstream, downstreamUnsubscribed, sendDownstreamEndOfStream, triggerDownstreamUnsubscribed, initial)
 
-	return downstream, unsubscribedCleanup.Emit
+	return downstream, triggerDownstreamUnsubscribed.Resolve
+}
+
+func (x *ReplaySubject[T]) AddSource(source Observable[T], endOfStreamPropagation EndOfStreamPropagationPolicy) {
+	PublishTo(PublishToArgs[T]{Source: source, Sink: x, PropogateEndOfStream: bool(endOfStreamPropagation)})
 }
 
 func (x *ReplaySubject[T]) OnEndOfStream(listener func()) func() {
+
 	x.lock.Lock()
 	defer x.lock.Unlock()
+
 	return x.subscribers.OnEndOfStream(listener)
 }

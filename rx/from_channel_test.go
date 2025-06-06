@@ -11,7 +11,7 @@ import (
 
 func TestFromChannel(t *testing.T) {
 
-	cleanupTest := prepareTest(t)
+	cleanupTest, env := prepareTest(t)
 	defer cleanupTest()
 
 	expected := u.Of(0, 1, 2, 3)
@@ -43,17 +43,17 @@ func TestFromChannel(t *testing.T) {
 		return downstream
 	})
 
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{name: "s1", t: t, wg: &wg, source: source, expected: expected}))
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{name: "s2", t: t, wg: &wg, source: source, expected: expected}))
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{name: "s3", t: t, wg: &wg, source: source, expected: expected}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s1", t: t, wg: &wg, source: source, expected: expected}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s2", t: t, wg: &wg, source: source, expected: expected}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s3", t: t, wg: &wg, source: source, expected: expected}))
 
 	wg.Wait()
-	cleanup.Emit()
+	cleanup.Resolve()
 }
 
 func TestFromChannelUnsubscribe(t *testing.T) {
 
-	cleanupTest := prepareTest(t)
+	cleanupTest, env := prepareTest(t)
 	defer cleanupTest()
 
 	expected := u.Of(1, 2, 3, 4)
@@ -96,10 +96,10 @@ func TestFromChannelUnsubscribe(t *testing.T) {
 
 	source := Pipe(FromChannel(channelSupplier), Take[int](4))
 
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{name: "s1", t: t, wg: &wg, source: source, expected: expected}))
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{name: "s2", t: t, wg: &wg, source: source, expected: expected}))
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{name: "s3", t: t, wg: &wg, source: source, expected: expected}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s1", t: t, wg: &wg, source: source, expected: expected}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s2", t: t, wg: &wg, source: source, expected: expected}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s3", t: t, wg: &wg, source: source, expected: expected}))
 
 	wg.Wait()
-	cleanup.Emit()
+	cleanup.Resolve()
 }

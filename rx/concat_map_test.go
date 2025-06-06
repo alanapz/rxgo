@@ -9,7 +9,7 @@ import (
 
 func TestConcatMap(t *testing.T) {
 
-	cleanupTest := prepareTest(t)
+	cleanupTest, env := prepareTest(t)
 	defer cleanupTest()
 
 	source := Pipe(
@@ -21,10 +21,10 @@ func TestConcatMap(t *testing.T) {
 	var wg sync.WaitGroup
 	var cleanup u.Event
 
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{name: "s1", t: t, wg: &wg, source: source, expected: u.Of(3, 2, 1, 0)}))
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{name: "s2", t: t, wg: &wg, source: source, expected: u.Of(3, 2, 1, 0)}))
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{name: "s3", t: t, wg: &wg, source: source, expected: u.Of(3, 2, 1, 0)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s1", t: t, wg: &wg, source: source, expected: u.Of(3, 2, 1, 0)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s2", t: t, wg: &wg, source: source, expected: u.Of(3, 2, 1, 0)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s3", t: t, wg: &wg, source: source, expected: u.Of(3, 2, 1, 0)}))
 
 	wg.Wait()
-	cleanup.Emit()
+	cleanup.Resolve()
 }

@@ -8,9 +8,9 @@ import (
 )
 
 type combineLatestCtx[T any] struct {
-	downstream   chan<- []CombineLatestResult[T]
-	unsubscribed <-chan u.Never
-	sources      map[int]*combineLatestSource[T]
+	downstream             chan<- []CombineLatestResult[T]
+	downstreamUnsubscribed <-chan u.Never
+	sources                map[int]*combineLatestSource[T]
 }
 
 type combineLatestSource[T any] struct {
@@ -23,16 +23,16 @@ type combineLatestSource[T any] struct {
 }
 
 func CombineLatest[T any](sources ...Observable[T]) Observable[[]CombineLatestResult[T]] {
-	return NewUnicastObservable(func(downstream chan<- []CombineLatestResult[T], unsubscribed <-chan u.Never) {
+	return NewUnicastObservable(func(args UnicastObserverArgs[[]CombineLatestResult[T]]) {
 
 		ctx := combineLatestCtx[T]{
-			downstream:   downstream,
-			unsubscribed: unsubscribed,
-			sources:      map[int]*combineLatestSource[T]{},
+			downstream:             args.Downstream,
+			downstreamUnsubscribed: args.DownstreamUnsubscribed,
+			sources:                map[int]*combineLatestSource[T]{},
 		}
 
 		for index, source := range sources {
-			upstream, unsubscribe := source.Subscribe()
+			upstream, unsubscribe := source.Subscribe(args.Environment)
 			defer unsubscribe()
 
 			ctx.sources[index] = &combineLatestSource[T]{
@@ -63,7 +63,7 @@ func CombineLatest[T any](sources ...Observable[T]) Observable[[]CombineLatestRe
 // combineLatestSelect returns isDone (ie: true for quit, false to keep going)
 func (x *combineLatestCtx[T]) selectNext(messages map[int]*u.SelectReceiveMessage[T]) u.SelectResult {
 
-	selections := u.Of(u.SelectDone(x.unsubscribed))
+	selections := u.Of(u.SelectDone(x.downstreamUnsubscribed))
 
 	for index, source := range x.sources {
 
@@ -116,7 +116,7 @@ func (x *combineLatestCtx[T]) handleMessages(messages map[int]*u.SelectReceiveMe
 		msgToSend[index] = CombineLatestResult[T]{HasValue: source.hasValue, Value: source.value, EndOfStream: source.endOfStream}
 	}
 
-	return u.Selection(u.SelectDone(x.unsubscribed), u.SelectSend(x.downstream, msgToSend))
+	return u.Selection(u.SelectDone(x.downstreamUnsubscribed), u.SelectSend(x.downstream, msgToSend))
 }
 
 func (x *combineLatestCtx[T]) handleEndOfStream() u.SelectResult {

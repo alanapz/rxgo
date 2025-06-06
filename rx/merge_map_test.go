@@ -9,7 +9,7 @@ import (
 
 func TestMergeMap(t *testing.T) {
 
-	cleanupTest := prepareTest(t)
+	cleanupTest, env := prepareTest(t)
 	defer cleanupTest()
 
 	source := Pipe2(
@@ -22,10 +22,10 @@ func TestMergeMap(t *testing.T) {
 
 	cleanup := u.Event{}
 
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{name: "s1", t: t, wg: &wg, source: source, expected: u.Of(0, 1, 2, 3)}))
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{name: "s2", t: t, wg: &wg, source: source, expected: u.Of(0, 1, 2, 3)}))
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{name: "s3", t: t, wg: &wg, source: source, expected: u.Of(0, 1, 2, 3)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s1", t: t, wg: &wg, source: source, expected: u.Of(0, 1, 2, 3)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s2", t: t, wg: &wg, source: source, expected: u.Of(0, 1, 2, 3)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s3", t: t, wg: &wg, source: source, expected: u.Of(0, 1, 2, 3)}))
 
 	wg.Wait()
-	cleanup.Emit()
+	cleanup.Resolve()
 }

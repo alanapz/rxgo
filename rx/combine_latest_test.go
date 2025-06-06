@@ -10,7 +10,7 @@ import (
 
 func TestCombineLatest(t *testing.T) {
 
-	cleanupTest := prepareTest(t)
+	cleanupTest, env := prepareTest(t)
 	defer cleanupTest()
 
 	type _R = CombineLatestResult[int]
@@ -36,15 +36,15 @@ func TestCombineLatest(t *testing.T) {
 	var wg sync.WaitGroup
 	var cleanup u.Event
 
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[[]_R]{name: "s1", t: t, wg: &wg, source: source, expected: expected}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[[]_R]{env: env, name: "s1", t: t, wg: &wg, source: source, expected: expected}))
 
 	wg.Wait()
-	cleanup.Emit()
+	cleanup.Resolve()
 }
 
 func TestCombineLatestWithReplaySubject(t *testing.T) {
 
-	cleanupTest := prepareTest(t)
+	cleanupTest, env := prepareTest(t)
 	defer cleanupTest()
 
 	type _R = CombineLatestResult[int]
@@ -61,9 +61,9 @@ func TestCombineLatestWithReplaySubject(t *testing.T) {
 		u.Of(_R{HasValue: true, Value: 30, EndOfStream: true}, _R{HasValue: true, Value: 20, EndOfStream: true}, _R{HasValue: true, Value: 3, EndOfStream: true}),
 	)
 
-	subject1 := NewReplaySubject[int](1)
-	subject2 := NewReplaySubject[int](1)
-	subject3 := NewReplaySubject[int](1)
+	subject1 := NewReplaySubject[int](env, 1)
+	subject2 := NewReplaySubject[int](env, 1)
+	subject3 := NewReplaySubject[int](env, 1)
 
 	source := CombineLatest(subject1, subject2, subject3)
 
@@ -71,34 +71,34 @@ func TestCombineLatestWithReplaySubject(t *testing.T) {
 	var cleanup u.Event
 
 	u.GoRun(func() {
-		subject1.Next(1)
+		env.Error(subject1.Next(1))
 		time.Sleep(time.Second)
-		subject2.Next(2)
+		env.Error(subject2.Next(2))
 		time.Sleep(time.Second)
-		subject3.Next(3)
+		env.Error(subject3.Next(3))
 		time.Sleep(time.Second)
-		subject1.Next(10)
+		env.Error(subject1.Next(10))
 		time.Sleep(time.Second)
-		subject2.Next(20)
+		env.Error(subject2.Next(20))
 		time.Sleep(time.Second)
-		subject3.EndOfStream()
+		env.Error(subject3.EndOfStream())
 		time.Sleep(time.Second)
-		subject1.Next(30)
+		env.Error(subject1.Next(30))
 		time.Sleep(time.Second)
-		subject2.EndOfStream()
+		env.Error(subject2.EndOfStream())
 		time.Sleep(time.Second)
-		subject1.EndOfStream()
+		env.Error(subject1.EndOfStream())
 	})
 
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[[]_R]{name: "s1", t: t, wg: &wg, source: source, expected: expected}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[[]_R]{env: env, name: "s1", t: t, wg: &wg, source: source, expected: expected}))
 
 	wg.Wait()
-	cleanup.Emit()
+	cleanup.Resolve()
 }
 
 func TestCombineLatestWithTakeUntil(t *testing.T) {
 
-	cleanupTest := prepareTest(t)
+	cleanupTest, env := prepareTest(t)
 	defer cleanupTest()
 
 	type _R = CombineLatestResult[int]
@@ -110,9 +110,9 @@ func TestCombineLatestWithTakeUntil(t *testing.T) {
 		u.Of(_R{HasValue: true, Value: 3, EndOfStream: true}, _R{}),
 	)
 
-	subject1 := NewReplaySubject[int](1)
-	subject2 := NewReplaySubject[int](1)
-	subject3 := NewReplaySubject[int](1)
+	subject1 := NewReplaySubject[int](env, 1)
+	subject2 := NewReplaySubject[int](env, 1)
+	subject3 := NewReplaySubject[Void](env, 1)
 
 	source := Pipe(CombineLatest(subject1, subject2), TakeUntil[[]_R](subject3))
 
@@ -120,20 +120,21 @@ func TestCombineLatestWithTakeUntil(t *testing.T) {
 	var cleanup u.Event
 
 	u.GoRun(func() {
-		subject1.Next(1)
+		env.Error(subject1.Next(1))
 		time.Sleep(time.Second)
-		subject1.Next(2)
+		env.Error(subject1.Next(2))
 		time.Sleep(time.Second)
-		subject1.Next(3)
+		env.Error(subject1.Next(3))
 		time.Sleep(time.Second)
-		subject1.EndOfStream()
+		env.Error(subject1.EndOfStream())
 		time.Sleep(time.Second)
-		subject3.EndOfStream()
+		env.Error(subject3.EndOfStream())
 	})
 
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[[]_R]{name: "s1", t: t, wg: &wg, source: source, expected: expected}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[[]_R]{env: env, name: "s1", t: t, wg: &wg, source: source, expected: expected}))
 	wg.Wait()
-	subject2.EndOfStream()
 
-	cleanup.Emit()
+	env.Error(subject2.EndOfStream())
+
+	cleanup.Resolve()
 }

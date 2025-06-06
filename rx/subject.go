@@ -1,8 +1,14 @@
 package rx
 
+type EndOfStreamPropagationPolicy bool
+
+const PropogateEndOfStream EndOfStreamPropagationPolicy = true
+const DoNotPropogateEndOfStream EndOfStreamPropagationPolicy = false
+
 type Subject[T any] interface {
 	Observable[T]
-	Next(T) bool // Accepted
-	EndOfStream()
+	Next(...T) error
+	EndOfStream() error
+	AddSource(Observable[T], EndOfStreamPropagationPolicy)
 	OnEndOfStream(func()) func()
 }

@@ -3,6 +3,7 @@ package rx
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 
 	u "alanpinder.com/rxgo/v2/utils"
@@ -10,6 +11,7 @@ import (
 
 var ErrEndOfStream = errors.New("end of stream")
 var ErrAborted = errors.New("aborted")
+var ErrDisposed = errors.New("disposed")
 
 type messageValue[T any] struct {
 	value       T
@@ -59,7 +61,7 @@ func NewMessageQueue[T any](lock *sync.Mutex, channel chan<- T, aborted <-chan u
 	return queue
 }
 
-func (x *messageQueue[T]) Next(value T) error {
+func (x *messageQueue[T]) Next(values ...T) error {
 
 	u.AssertLocked(x.lock)
 
@@ -67,8 +69,11 @@ func (x *messageQueue[T]) Next(value T) error {
 		return x.result
 	}
 
-	x.queue.Push(messageValue[T]{value: value})
-	x.revision++
+	for value := range slices.Values(values) {
+		x.queue.Push(messageValue[T]{value: value})
+		x.revision++
+	}
+
 	x.wakeup.Broadcast()
 
 	return nil
@@ -140,7 +145,7 @@ func (x *messageQueue[T]) disposeWorker(err error) {
 	}
 
 	defer x.onWorkerComplete()
-	x.cleanup.Emit()
+	x.cleanup.Resolve()
 }
 
 func (x *messageQueue[T]) waitForNextRevision(current *uint64) error {

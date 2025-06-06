@@ -7,9 +7,9 @@ import (
 )
 
 func Of[T any](values ...T) Observable[T] {
-	return NewUnicastObservable(func(downstream chan<- T, unsubscribed <-chan u.Never) {
+	return NewUnicastObservable(func(args UnicastObserverArgs[T]) {
 		for value := range slices.Values(values) {
-			if u.Selection(u.SelectDone(unsubscribed), u.SelectSend(downstream, value)) == u.DoneResult {
+			if u.Selection(u.SelectDone(args.DownstreamUnsubscribed), u.SelectSend(args.Downstream, value)) == u.DoneResult {
 				return
 			}
 		}

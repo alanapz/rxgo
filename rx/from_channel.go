@@ -5,9 +5,9 @@ import (
 )
 
 func FromChannel[T any](channelSupplier func(unsubscribed <-chan u.Never) (upstream <-chan T)) Observable[T] {
-	return NewUnicastObservable(func(downstream chan<- T, unsubscribed <-chan u.Never) {
+	return NewUnicastObservable(func(args UnicastObserverArgs[T]) {
 
-		upstream := channelSupplier(unsubscribed)
+		upstream := channelSupplier(args.DownstreamUnsubscribed)
 
 		for {
 
@@ -17,11 +17,11 @@ func FromChannel[T any](channelSupplier func(unsubscribed <-chan u.Never) (upstr
 
 			var msg u.SelectReceiveMessage[T]
 
-			if u.Selection(u.SelectDone(unsubscribed), u.SelectReceive(&upstream, &msg)) == u.DoneResult {
+			if u.Selection(u.SelectDone(args.DownstreamUnsubscribed), u.SelectReceive(&upstream, &msg)) == u.DoneResult {
 				return
 			}
 
-			if msg.HasValue && u.Selection(u.SelectDone(unsubscribed), u.SelectSend(downstream, msg.Value)) == u.DoneResult {
+			if msg.HasValue && u.Selection(u.SelectDone(args.DownstreamUnsubscribed), u.SelectSend(args.Downstream, msg.Value)) == u.DoneResult {
 				return
 			}
 		}

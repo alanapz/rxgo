@@ -42,6 +42,29 @@ func NewCondition(message string) func() {
 	}
 }
 
+func NewConditionVariable(message string) func() {
+
+	conditionLock.Lock()
+	defer conditionLock.Unlock()
+
+	nextConditionId++
+
+	conditionId := nextConditionId
+	conditions[conditionId] = condition{message: message, stack: string(debug.Stack())}
+
+	return func() {
+
+		conditionLock.Lock()
+		defer conditionLock.Unlock()
+
+		if _, ok := conditions[conditionId]; !ok {
+			panic(fmt.Sprintf("condition already resolved: %d", conditionId))
+		}
+
+		delete(conditions, conditionId)
+	}
+}
+
 func (x condition) String() string {
 	return x.message + x.stack
 }

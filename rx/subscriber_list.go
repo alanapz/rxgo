@@ -1,7 +1,9 @@
 package rx
 
 import (
+	"errors"
 	"maps"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -11,6 +13,7 @@ import (
 type subscriberId = uint64
 
 type subscriberList[T any] struct {
+	env              *RxEnvironment
 	lock             *sync.Mutex
 	nextSubscriberId atomic.Uint64
 	subscribers      map[subscriberId]*messageQueue[T]
@@ -20,11 +23,17 @@ type subscriberList[T any] struct {
 	latestValue      T
 }
 
-func NewSubscriberList[T any](lock *sync.Mutex) *subscriberList[T] {
+func NewSubscriberList[T any](env *RxEnvironment, lock *sync.Mutex) *subscriberList[T] {
 	return &subscriberList[T]{
+		env:         env,
 		lock:        lock,
 		subscribers: map[subscriberId]*messageQueue[T]{},
 	}
+}
+
+func (x *subscriberList[T]) HasLatestValue() bool {
+	u.AssertLocked(x.lock)
+	return x.hasValue
 }
 
 func (x *subscriberList[T]) GetLatestValue() (T, bool) {
@@ -37,39 +46,56 @@ func (x *subscriberList[T]) IsEndOfStream() bool {
 	return x.endOfStream
 }
 
-func (x *subscriberList[T]) Next(value T) bool {
+func (x *subscriberList[T]) Next(values ...T) error {
 
 	u.AssertLocked(x.lock)
 
+	if len(values) == 0 {
+		return nil
+	}
+
 	if x.endOfStream {
-		return false
+		return ErrEndOfStream
 	}
 
 	x.hasValue = true
-	x.latestValue = value
 
-	for subscriber := range maps.Values(x.subscribers) {
-		subscriber.Next(value)
+	var postErrors []error
+
+	for value := range slices.Values(values) {
+
+		x.latestValue = value
+
+		for subscriber := range maps.Values(x.subscribers) {
+			if err := subscriber.Next(value); err != nil {
+				u.Append(&postErrors, err)
+			}
+		}
 	}
 
-	return true
+	return errors.Join(postErrors...)
 }
 
-func (x *subscriberList[T]) EndOfStream() {
+func (x *subscriberList[T]) EndOfStream() error {
 
 	u.AssertLocked(x.lock)
 
 	if x.endOfStream {
-		return
+		return nil
 	}
 
 	x.endOfStream = true
 
+	var postErrors []error
+
 	for subscriber := range maps.Values(x.subscribers) {
-		subscriber.EndOfStream()
+		if err := subscriber.EndOfStream(); err != nil {
+			u.Append(&postErrors, err)
+		}
 	}
 
-	x.onEndOfStream.Emit()
+	x.onEndOfStream.Resolve()
+	return errors.Join(postErrors...)
 }
 
 func (x *subscriberList[T]) AddSubscriber(downstream chan<- T, aborted <-chan u.Never, downstreamCleanup *u.Event, unsubscribedCleanup *u.Event, initial []messageValue[T]) {
@@ -85,7 +111,7 @@ func (x *subscriberList[T]) AddSubscriber(downstream chan<- T, aborted <-chan u.
 
 	downstreamCleanup.AddPostExecutionHook(func() {
 		u.AssertLocked(x.lock)
-		unsubscribedCleanup.Emit()
+		unsubscribedCleanup.Resolve()
 	})
 
 	x.subscribers[subscriberId] = NewMessageQueue(x.lock, downstream, aborted, downstreamCleanup, initial)
@@ -93,5 +119,11 @@ func (x *subscriberList[T]) AddSubscriber(downstream chan<- T, aborted <-chan u.
 
 func (x *subscriberList[T]) OnEndOfStream(listener func()) func() {
 	u.AssertLocked(x.lock)
+
+	if x.endOfStream {
+		listener()
+		return u.DoNothing
+	}
+
 	return x.onEndOfStream.Add(listener)
 }

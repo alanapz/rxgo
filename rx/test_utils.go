@@ -11,7 +11,7 @@ import (
 	u "alanpinder.com/rxgo/v2/utils"
 )
 
-func prepareTest(t *testing.T) func() {
+func prepareTest(t *testing.T) (func(), *RxEnvironment) {
 
 	conditions := u.GetConditions()
 
@@ -43,10 +43,11 @@ func prepareTest(t *testing.T) func() {
 				t.Errorf("- %s", condition)
 			}
 		}
-	}
+	}, &RxEnvironment{}
 }
 
 type testSubscriberArgs[T any] struct {
+	env        *RxEnvironment
 	name       string
 	t          *testing.T
 	wg         *sync.WaitGroup
@@ -59,9 +60,9 @@ func addTestSubscriber[T any](args testSubscriberArgs[T]) func() {
 
 	t, wg, name, source, expected, outOfOrder := args.t, args.wg, args.name, args.source, args.expected, args.outOfOrder
 
-	u.Require(t, wg, name, source, expected)
+	u.Require(args.env, t, wg, name, source, expected)
 
-	upstream, unsubscribe := source.Subscribe()
+	upstream, unsubscribe := source.Subscribe(args.env)
 
 	wg.Add(1)
 

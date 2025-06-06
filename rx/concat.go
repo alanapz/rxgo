@@ -7,12 +7,22 @@ import (
 )
 
 func Concat[T any](sources ...Observable[T]) Observable[T] {
-	return NewUnicastObservable(func(downstream chan<- T, unsubscribed <-chan u.Never) {
+
+	if len(sources) == 0 {
+		return Of[T]()
+	}
+
+	if len(sources) == 1 {
+		return sources[0]
+	}
+
+	return NewUnicastObservable(func(args UnicastObserverArgs[T]) {
 		for source := range slices.Values(sources) {
 			if drainObservable(drainObservableArgs[T]{
-				source:       source,
-				downstream:   downstream,
-				unsubscribed: unsubscribed,
+				Environment:            args.Environment,
+				Source:                 source,
+				Downstream:             args.Downstream,
+				DownstreamUnsubscribed: args.DownstreamUnsubscribed,
 			}) == u.DoneResult {
 				return
 			}

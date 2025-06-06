@@ -1,34 +1,26 @@
 package rx
 
 import (
-	"slices"
-
 	u "alanpinder.com/rxgo/v2/utils"
 )
 
-func TakeUntil[T any, X any](notifiers ...Observable[X]) OperatorFunction[T, T] {
+func TakeUntil[T any](notifiers ...Observable[Void]) OperatorFunction[T, T] {
 
 	return func(source Observable[T]) Observable[T] {
-		return NewUnicastObservable(func(downstream chan<- T, unsubscribed <-chan u.Never) {
+		return NewUnicastObservable(func(args UnicastObserverArgs[T]) {
 
-			var notifierSources []<-chan X
-
-			for notifier := range slices.Values(notifiers) {
-				notifierSource, notifierUnsubscribe := notifier.Subscribe()
-				u.Append(&notifierSources, notifierSource)
-				defer notifierUnsubscribe()
-			}
+			notifier, unsubscribeFromNotifier := Pipe(Merge(notifiers...), First[Void]()).Subscribe(args.Environment)
+			defer unsubscribeFromNotifier()
 
 			drainObservable(drainObservableArgs[T]{
-				source:       source,
-				downstream:   downstream,
-				unsubscribed: unsubscribed,
-				newLoopContext: func() drainObservableLoopContext[T] {
+				Environment:            args.Environment,
+				Source:                 source,
+				Downstream:             args.Downstream,
+				DownstreamUnsubscribed: args.DownstreamUnsubscribed,
+				NewLoopContext: func() drainObservableLoopContext[T] {
 					return drainObservableLoopContext[T]{
 						beforeSelection: func(items *[]u.SelectItem) u.SelectResult {
-							for notifierSource := range slices.Values(notifierSources) {
-								u.Append(items, u.SelectDone(notifierSource))
-							}
+							u.Append(items, u.SelectDone(notifier))
 							return u.ContinueResult
 						},
 					}

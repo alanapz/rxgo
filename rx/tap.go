@@ -4,12 +4,13 @@ import u "alanpinder.com/rxgo/v2/utils"
 
 func Tap[T any](tapValue func(T)) OperatorFunction[T, T] {
 	return func(source Observable[T]) Observable[T] {
-		return NewUnicastObservable(func(downstream chan<- T, unsubscribed <-chan u.Never) {
+		return NewUnicastObservable(func(args UnicastObserverArgs[T]) {
 			drainObservable(drainObservableArgs[T]{
-				source:       source,
-				downstream:   downstream,
-				unsubscribed: unsubscribed,
-				newLoopContext: func() drainObservableLoopContext[T] {
+				Environment:            args.Environment,
+				Source:                 source,
+				Downstream:             args.Downstream,
+				DownstreamUnsubscribed: args.DownstreamUnsubscribed,
+				NewLoopContext: func() drainObservableLoopContext[T] {
 					return drainObservableLoopContext[T]{
 						onSelection: func(msg *u.SelectReceiveMessage[T]) AfterSelectionResult {
 

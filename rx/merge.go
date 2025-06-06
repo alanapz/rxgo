@@ -8,23 +8,33 @@ import (
 )
 
 func Merge[T any](sources ...Observable[T]) Observable[T] {
-	return NewUnicastObservable(func(downstream chan<- T, unsubscribed <-chan u.Never) {
+
+	if len(sources) == 0 {
+		return Of[T]()
+	}
+
+	if len(sources) == 1 {
+		return sources[0]
+	}
+
+	return NewUnicastObservable(func(args UnicastObserverArgs[T]) {
 
 		var wg sync.WaitGroup
 
-		for index, source := range sources {
+		wg.Add(len(sources))
 
-			wg.Add(1)
+		for index, source := range sources {
 
 			onInnerObservableComplete := u.NewCondition(fmt.Sprintf("Waiting for inner observable for source #%d to complete", index))
 
-			u.GoRun(func() {
+			args.Environment.Execute(func() {
 				defer wg.Done()
 				defer onInnerObservableComplete()
 				drainObservable(drainObservableArgs[T]{
-					source:       source,
-					downstream:   downstream,
-					unsubscribed: unsubscribed,
+					Environment:            args.Environment,
+					Source:                 source,
+					Downstream:             args.Downstream,
+					DownstreamUnsubscribed: args.DownstreamUnsubscribed,
 				})
 			})
 		}

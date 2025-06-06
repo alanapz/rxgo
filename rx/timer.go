@@ -7,7 +7,7 @@ import (
 )
 
 func Timer(interval time.Duration) Observable[time.Duration] {
-	return NewUnicastObservable(func(downstream chan<- time.Duration, unsubscribed <-chan u.Never) {
+	return NewUnicastObservable(func(args UnicastObserverArgs[time.Duration]) {
 
 		startTime := time.Now()
 
@@ -17,11 +17,11 @@ func Timer(interval time.Duration) Observable[time.Duration] {
 
 			msg := u.SelectReceiveMessage[time.Time]{Policy: u.AbortOnClose}
 
-			if u.Selection(u.SelectDone(unsubscribed), u.SelectReceive(&timerChannel, &msg)) == u.DoneResult {
+			if u.Selection(u.SelectDone(args.DownstreamUnsubscribed), u.SelectReceive(&timerChannel, &msg)) == u.DoneResult {
 				return
 			}
 
-			if msg.HasValue && u.Selection(u.SelectDone(unsubscribed), u.SelectSend(downstream, msg.Value.Sub(startTime))) == u.DoneResult {
+			if msg.HasValue && u.Selection(u.SelectDone(args.DownstreamUnsubscribed), u.SelectSend(args.Downstream, msg.Value.Sub(startTime))) == u.DoneResult {
 				return
 			}
 		}

@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"reflect"
 	"slices"
 	"sync"
@@ -27,10 +28,10 @@ func Assert(condition bool) {
 var nullableTypes = Of(reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice)
 
 func Require(values ...any) {
-	for value := range slices.Values(values) {
+	for index, value := range values {
 		reflectedValue := reflect.ValueOf(value)
 		if slices.Contains(nullableTypes, reflectedValue.Kind()) && reflectedValue.IsNil() {
-			panic("expected")
+			panic(fmt.Sprintf("%d parameter required", index+1))
 		}
 	}
 }
@@ -71,6 +72,10 @@ func Ternary[T any](condition bool, ifTrue, ifFalse T) T {
 func Zero[T any]() T {
 	var value T
 	return value
+}
+
+func DoNothing() {
+
 }
 
 const mutexLocked = 1
