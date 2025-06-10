@@ -2,127 +2,127 @@ package utils
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"sync"
 )
 
-// A CancelFunc tells an operation to abandon its work.
-// A CancelFunc does not wait for the work to stop.
-// A CancelFunc may be called by multiple goroutines simultaneously.
-// After the first call, subsequent calls to a CancelFunc do nothing.
-type CancelFunc = func()
+type ListenerFunc func()
+type CancelFunc func()
+
+type EventState string
+
+const ExecutionInProgress EventState = "executionInProgress"
+const RunningPostExecutionHooks EventState = "runningPostExecutionHooks"
+const ExecutionComplete EventState = "complete"
 
 type Event struct {
-	lock                sync.Mutex
-	executionInProgress bool
-	executionComplete   bool
-	listeners           []*CancelFunc // Pointer so we an easily support removing listeners
-	postExecutionHooks  []func()
+	lock               sync.Mutex
+	state              EventState
+	nextListenerId     uint
+	listeners          map[uint]ListenerFunc
+	postExecutionHooks map[uint]ListenerFunc
 }
 
 func (x *Event) String() string {
-	return fmt.Sprintf("%d listeners, %v %v", len(x.listeners), x.executionInProgress, x.executionComplete)
+	return fmt.Sprintf("%d listeners, state=%v", len(x.listeners), x.state)
 }
 
-func (x *Event) IsExecutionInProgress() bool {
-	return x.executionInProgress
+func (x *Event) IsInProgress() bool {
+	return x.state == ExecutionInProgress || x.state == RunningPostExecutionHooks
 }
 
-func (x *Event) IsResolved() bool {
-	return x.executionComplete
+func (x *Event) IsComplete() bool {
+	return x.state == ExecutionComplete
 }
 
-func (x *Event) Add(listener func()) CancelFunc {
+func (x *Event) Add(listener ListenerFunc) CancelFunc {
 
 	Assert(listener != nil)
 
 	x.lock.Lock()
 	defer x.lock.Unlock()
 
-	if x.executionInProgress {
+	if x.IsInProgress() {
 		panic("execution in progress")
 	}
 
-	if x.executionComplete {
+	if x.IsComplete() {
 		panic("execution complete")
 	}
 
-	Append(&x.listeners, &listener)
+	listenerId := x.nextListenerId
+	x.nextListenerId++
 
-	position := len(x.listeners) - 1
+	x.listeners[listenerId] = listener
 
 	return func() {
+
 		x.lock.Lock()
 		defer x.lock.Unlock()
-		x.listeners[position] = nil
+
+		delete(x.listeners, listenerId)
 	}
 }
 
-func (x *Event) Chain(listener func()) CancelFunc {
-
-	Assert(listener != nil)
-
-	x.lock.Lock()
-	defer x.lock.Unlock()
-
-	if x.executionInProgress {
-		panic("execution in progress")
-	}
-
-	if x.executionComplete {
-		panic("execution complete")
-	}
-
-	Append(&x.listeners, &listener)
-
-	position := len(x.listeners) - 1
-
-	return func() {
-		x.lock.Lock()
-		defer x.lock.Unlock()
-		x.listeners[position] = nil
-	}
-}
-
-func (x *Event) AddPostExecutionHook(postExecutionHook func()) {
+func (x *Event) AddPostExecutionHook(postExecutionHook ListenerFunc) CancelFunc {
 
 	Assert(postExecutionHook != nil)
 
 	x.lock.Lock()
 	defer x.lock.Unlock()
 
-	if x.executionInProgress {
+	if x.IsInProgress() {
 		panic("execution in progress")
 	}
 
-	if x.executionComplete {
+	if x.IsComplete() {
 		panic("execution complete")
 	}
 
-	Append(&x.postExecutionHooks, postExecutionHook)
+	listenerId := x.nextListenerId
+	x.nextListenerId++
+
+	x.postExecutionHooks[listenerId] = postExecutionHook
+
+	return func() {
+
+		x.lock.Lock()
+		defer x.lock.Unlock()
+
+		delete(x.postExecutionHooks, listenerId)
+	}
 }
 
-func (x *Event) Resolve() {
+func (x *Event) Emit() {
 
 	x.lock.Lock()
 	defer x.lock.Unlock()
 
-	if x.executionInProgress || x.executionComplete {
+	if x.IsInProgress() || x.IsComplete() {
 		return
 	}
 
-	x.executionInProgress = true
+	x.state = ExecutionInProgress
 
-	for listener := range slices.Values(x.listeners) {
-		if listener != nil {
-			(*listener)()
+	if len(x.listeners) > 0 {
+		listenerIds := slices.Collect(maps.Keys(x.listeners))
+		slices.Sort(listenerIds)
+		for listenerId := range slices.Values(listenerIds) {
+			x.listeners[listenerId]()
 		}
 	}
 
-	x.executionComplete = true
-	x.executionInProgress = false
+	if len(x.postExecutionHooks) > 0 {
 
-	for postExecutionHook := range slices.Values(x.postExecutionHooks) {
-		postExecutionHook()
+		x.state = RunningPostExecutionHooks
+
+		listenerIds := slices.Collect(maps.Keys(x.postExecutionHooks))
+		slices.Sort(listenerIds)
+		for listenerId := range slices.Values(listenerIds) {
+			x.postExecutionHooks[listenerId]()
+		}
 	}
+
+	x.state = ExecutionComplete
 }

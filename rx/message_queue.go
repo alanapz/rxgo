@@ -145,7 +145,7 @@ func (x *messageQueue[T]) disposeWorker(err error) {
 	}
 
 	defer x.onWorkerComplete()
-	x.cleanup.Resolve()
+	x.cleanup.Emit()
 }
 
 func (x *messageQueue[T]) waitForNextRevision(current *uint64) error {

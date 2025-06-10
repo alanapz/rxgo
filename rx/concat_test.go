@@ -25,5 +25,5 @@ func TestConcat(t *testing.T) {
 	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s2", t: t, wg: &wg, source: source, expected: u.Of(1, 2, 3, 4, 5, 6, 7, 8, 9, 14, 16, 18)}))
 
 	wg.Wait()
-	cleanup.Resolve()
+	cleanup.Emit()
 }

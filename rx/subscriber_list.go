@@ -94,13 +94,17 @@ func (x *subscriberList[T]) EndOfStream() error {
 		}
 	}
 
-	x.onEndOfStream.Resolve()
+	x.onEndOfStream.Emit()
 	return errors.Join(postErrors...)
 }
 
-func (x *subscriberList[T]) AddSubscriber(downstream chan<- T, aborted <-chan u.Never, downstreamCleanup *u.Event, unsubscribedCleanup *u.Event, initial []messageValue[T]) {
+func (x *subscriberList[T]) AddSubscriber(downstream chan<- T, aborted <-chan u.Never, downstreamCleanup *u.Event, unsubscribedCleanup *u.Event, initial ...messageValue[T]) error {
 
 	u.AssertLocked(x.lock)
+
+	if x.endOfStream {
+		return ErrEndOfStream
+	}
 
 	subscriberId := x.nextSubscriberId.Add(1)
 
@@ -111,10 +115,11 @@ func (x *subscriberList[T]) AddSubscriber(downstream chan<- T, aborted <-chan u.
 
 	downstreamCleanup.AddPostExecutionHook(func() {
 		u.AssertLocked(x.lock)
-		unsubscribedCleanup.Resolve()
+		unsubscribedCleanup.Emit()
 	})
 
 	x.subscribers[subscriberId] = NewMessageQueue(x.lock, downstream, aborted, downstreamCleanup, initial)
+	return nil
 }
 
 func (x *subscriberList[T]) OnEndOfStream(listener func()) func() {

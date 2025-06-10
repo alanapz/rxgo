@@ -24,16 +24,16 @@ func NewUnicastObservable[T any](onNewObserver NewUnicastObserver[T]) *UnicastOb
 	}
 }
 
-func (x *UnicastObservable[T]) Subscribe(env *RxEnvironment) (<-chan T, func()) {
+func (x *UnicastObservable[T]) Subscribe(env *RxEnvironment) (<-chan T, func(), error) {
 
 	downstream, sendDownstreamEndOfStream := NewChannel[T](env, 0)
 	downstreamUnsubscribed, triggerDownstreamUnsubscribed := NewChannel[u.Never](env, 0)
 
 	u.GoRun(func() {
-		defer triggerDownstreamUnsubscribed.Resolve()
-		defer sendDownstreamEndOfStream.Resolve()
+		defer triggerDownstreamUnsubscribed.Emit()
+		defer sendDownstreamEndOfStream.Emit()
 		x.onNewObserver(UnicastObserverArgs[T]{Environment: env, Downstream: downstream, DownstreamUnsubscribed: downstreamUnsubscribed})
 	})
 
-	return downstream, triggerDownstreamUnsubscribed.Resolve
+	return downstream, triggerDownstreamUnsubscribed.Emit
 }

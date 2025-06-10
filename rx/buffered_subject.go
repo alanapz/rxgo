@@ -15,7 +15,7 @@ func BufferUntil[T any](notifiers ...Observable[Void]) OperatorFunction[T, T] {
 			subject := NewBufferedSubject[T](BufferedSubjectArgs{Environment: args.Environment, Notifiers: notifiers})
 			defer subject.Dispose()
 
-			subject.AddSource(source, PropogateEndOfStream)
+			subject.AddSource(source, PropogateEndOfStreamFromSourceToSink)
 
 			drainObservable(drainObservableArgs[T]{
 				Environment:            args.Environment,
@@ -28,19 +28,20 @@ func BufferUntil[T any](notifiers ...Observable[Void]) OperatorFunction[T, T] {
 }
 
 type BufferedSubject[T any] struct {
-	env               *RxEnvironment
-	notifiers         []Observable[Void]
-	lock              *sync.Mutex
-	subscribers       *subscriberList[T]
-	notifySubscribers bool // Whether we have been notified: if true,. pass messages to subscribers
-	buffer            []T
-	endOfStream       bool
-	disposed          bool
-	dispose           *NotificationSubject
-	startWorkerOnce   sync.Once
+	env             *RxEnvironment
+	notifiers       []Observable[Void]
+	lock            *sync.Mutex
+	subscribers     *subscriberList[T]
+	buffer          []T
+	signalled       bool // Whether we have been notified: if true,. pass messages to subscribers
+	endOfStream     bool
+	disposed        bool
+	dispose         *NotificationSubject
+	startWorkerOnce sync.Once
 }
 
 var _ Subject[any] = (*BufferedSubject[any])(nil)
+var _ Disposable = (*BufferedSubject[any])(nil)
 
 type BufferedSubjectArgs struct {
 	Environment *RxEnvironment
@@ -49,43 +50,58 @@ type BufferedSubjectArgs struct {
 
 func NewBufferedSubject[T any](args BufferedSubjectArgs) *BufferedSubject[T] {
 
+	env, notifiers := args.Environment, args.Notifiers
+
+	u.Require(env, notifiers)
+
 	var lock sync.Mutex
 
 	subject := &BufferedSubject[T]{
-		env:         args.Environment,
+		env:         env,
 		notifiers:   args.Notifiers,
 		lock:        &lock,
-		subscribers: NewSubscriberList[T](args.Environment, &lock),
-		dispose:     NewNotificationSubject(args.Environment),
+		subscribers: NewSubscriberList[T](env, &lock),
+		dispose:     NewNotificationSubject(env),
 	}
 
 	subject.startWorker()
 
+	env.AddTryCleanup(subject.Dispose)
 	return subject
 }
 
-func (x *BufferedSubject[T]) Dispose() {
+func (x *BufferedSubject[T]) IsDisposed() bool {
+
+	x.lock.Lock()
+	defer x.lock.Unlock()
+
+	return x.disposed
+}
+
+func (x *BufferedSubject[T]) Dispose() error {
 
 	x.lock.Lock()
 	defer x.lock.Unlock()
 
 	if x.disposed {
-		return
+		return nil
 	}
 
-	if !x.notifySubscribers {
-		x.env.Error(errors.New("dispose before subscribers notified: buffered events will be lost"))
-		return
+	if !x.signalled {
+		return errors.New("dispose before subscribers notified: buffered events will be lost")
 	}
 
 	if !x.endOfStream {
-		x.env.Error(errors.New("dispose before end-of-stream: pending events will be lost"))
-		return
+		return errors.New("dispose before end-of-stream: pending events will be lost")
 	}
 
 	x.disposed = true
 
-	x.env.Error(x.dispose.Signal())
+	if err := x.dispose.Signal(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (x *BufferedSubject[T]) NotifySubscribers() error {
@@ -93,7 +109,7 @@ func (x *BufferedSubject[T]) NotifySubscribers() error {
 	x.lock.Lock()
 	defer x.lock.Unlock()
 
-	if x.notifySubscribers {
+	if x.signalled {
 		return nil
 	}
 
@@ -101,7 +117,7 @@ func (x *BufferedSubject[T]) NotifySubscribers() error {
 		return ErrDisposed
 	}
 
-	x.notifySubscribers = true
+	x.signalled = true
 	return x.flushIfNecessary()
 }
 
@@ -143,7 +159,7 @@ func (x *BufferedSubject[T]) flushIfNecessary() error {
 
 	u.AssertLocked(x.lock)
 
-	if !x.notifySubscribers {
+	if !x.signalled {
 		return nil
 	}
 
@@ -162,34 +178,33 @@ func (x *BufferedSubject[T]) flushIfNecessary() error {
 	return nil
 }
 
-func (x *BufferedSubject[T]) Subscribe(env *RxEnvironment) (<-chan T, func()) {
+func (x *BufferedSubject[T]) Subscribe(env *RxEnvironment) (<-chan T, func(), error) {
 
 	x.lock.Lock()
 	defer x.lock.Unlock()
 
 	if x.disposed {
-		x.env.Error(ErrDisposed)
-		return nil, nil
+		return nil, nil, ErrDisposed
 	}
 
 	downstream, sendDownstreamEndOfStream := NewChannel[T](env, 0)
 	downstreamUnsubscribed, triggerDownstreamUnsubscribed := NewChannel[u.Never](env, 0)
 
-	if x.subscribers.IsEndOfStream() {
+	endOfStream := x.subscribers.IsEndOfStream()
+
+	if x.signalled && x.endOfStream {
 		sendValuesThenEndOfStreamAsync(env, downstream, downstreamUnsubscribed)
+	} else if x.disposed {
+		x.env.Error(ErrDisposed)
 	} else {
-		x.subscribers.AddSubscriber(downstream, downstreamUnsubscribed, sendDownstreamEndOfStream, triggerDownstreamUnsubscribed, nil)
+		x.subscribers.AddSubscriber(downstream, downstreamUnsubscribed, sendDownstreamEndOfStream, triggerDownstreamUnsubscribed)
 	}
 
-	return downstream, triggerDownstreamUnsubscribed.Resolve
+	return downstream, triggerDownstreamUnsubscribed.Emit
 }
 
 func (x *BufferedSubject[T]) AddSource(source Observable[T], endOfStreamPropagation EndOfStreamPropagationPolicy) {
-
-	x.lock.Lock()
-	defer x.lock.Unlock()
-
-	PublishTo(PublishToArgs[T]{Environment: x.env, Source: source, Sink: x, PropogateEndOfStream: bool(endOfStreamPropagation)})
+	PublishTo(x.env, source, x, endOfStreamPropagation)
 }
 
 func (x *BufferedSubject[T]) OnEndOfStream(listener func()) func() {

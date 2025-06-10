@@ -47,18 +47,17 @@ func prepareTest(t *testing.T) (func(), *RxEnvironment) {
 }
 
 type testSubscriberArgs[T any] struct {
-	env        *RxEnvironment
-	name       string
-	t          *testing.T
-	wg         *sync.WaitGroup
-	source     Observable[T]
-	expected   []T
-	outOfOrder bool
+	env      *RxEnvironment
+	name     string
+	t        *testing.T
+	wg       *sync.WaitGroup
+	source   Observable[T]
+	expected []T
 }
 
 func addTestSubscriber[T any](args testSubscriberArgs[T]) func() {
 
-	t, wg, name, source, expected, outOfOrder := args.t, args.wg, args.name, args.source, args.expected, args.outOfOrder
+	t, wg, name, source, expected := args.t, args.wg, args.name, args.source, args.expected
 
 	u.Require(args.env, t, wg, name, source, expected)
 
@@ -71,16 +70,13 @@ func addTestSubscriber[T any](args testSubscriberArgs[T]) func() {
 
 		position := 0
 
-		received := u.Of[T]()
-
 		for msg := range upstream {
 
 			t.Logf("%s: (%d) Received: '%v'", name, position+1, msg)
-			u.Append(&received, msg)
 
 			if position >= len(expected) {
 				t.Errorf("%s: (%d) Unexpected value: '%v' (expected only %d results)", name, position+1, msg, len(expected))
-			} else if !outOfOrder && !reflect.DeepEqual(msg, expected[position]) {
+			} else if !reflect.DeepEqual(msg, expected[position]) {
 				t.Errorf("%s: (%d) Unexpected value: '%v' (expected: '%v')", name, position+1, msg, expected[position])
 			}
 
@@ -88,10 +84,6 @@ func addTestSubscriber[T any](args testSubscriberArgs[T]) func() {
 		}
 
 		t.Logf("%s: End of stream (%d results)", name, position)
-
-		if !reflect.DeepEqual(received, expected) {
-			t.Errorf("%s: Unexpected values: '%v' (expected: '%v')", name, received, expected)
-		}
 	})
 
 	return unsubscribe

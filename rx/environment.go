@@ -8,19 +8,65 @@ import (
 )
 
 type RxEnvironment struct {
-	CustomExecutor     func(func())
-	CustomErrorHandler func(error)
+	parent       *RxEnvironment
+	executor     func(func())
+	errorHandler func(error)
+	cleanup      u.Event
+}
+
+func (x *RxEnvironment) NewEnvironment() *RxEnvironment {
+	return &RxEnvironment{
+		executor:     u.GoRun,
+		errorHandler: u.Panic,
+	}
+}
+
+func (x *RxEnvironment) AddCleanup(listener func()) {
+	x.cleanup.Add(listener)
+}
+
+func (x *RxEnvironment) AddTryCleanup(listener func() error) {
+	x.cleanup.Add(listener)
+}
+
+func (x *RxEnvironment) Dispose() {
+	x.cleanup.Emit()
 }
 
 func (x *RxEnvironment) Execute(fn func()) {
-	u.Coalesce(x.CustomExecutor, u.GoRun)(fn)
+
+	u.Assert(fn != nil)
+
+	if x.executor != nil {
+		x.executor(fn)
+		return
+	}
+
+	x.parent.Execute(fn)
 }
 
 func (x *RxEnvironment) Error(err error) {
+
 	if err == nil {
 		return
 	}
-	panic(err)
+
+	if x.errorHandler != nil {
+		x.errorHandler(err)
+		return
+	}
+
+	x.parent.Error(err)
+}
+
+func (x *RxEnvironment) WithExecutor(executor func(func())) *RxEnvironment {
+	u.Assert(executor != nil)
+	return &RxEnvironment{parent: x, executor: executor}
+}
+
+func (x *RxEnvironment) WithErrorHandler(errorHandler func(error)) *RxEnvironment {
+	u.Assert(errorHandler != nil)
+	return &RxEnvironment{parent: x, errorHandler: errorHandler}
 }
 
 func NewChannel[T any](env *RxEnvironment, bufferCapacity uint) (chan T, *u.Event) {

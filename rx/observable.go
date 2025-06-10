@@ -5,7 +5,7 @@ import (
 )
 
 type Observable[T any] interface {
-	Subscribe(env *RxEnvironment) (<-chan T, func())
+	Subscribe(env *RxEnvironment) (<-chan T, func(), error)
 }
 
 type AfterSelectionResult string

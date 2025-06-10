@@ -51,7 +51,7 @@ func (x *ReplaySubject[T]) EndOfStream() error {
 	return x.subscribers.EndOfStream()
 }
 
-func (x *ReplaySubject[T]) Subscribe(env *RxEnvironment) (<-chan T, func()) {
+func (x *ReplaySubject[T]) Subscribe(env *RxEnvironment) (<-chan T, func(), error) {
 
 	x.lock.Lock()
 	defer x.lock.Unlock()
@@ -71,11 +71,11 @@ func (x *ReplaySubject[T]) Subscribe(env *RxEnvironment) (<-chan T, func()) {
 
 	x.subscribers.AddSubscriber(downstream, downstreamUnsubscribed, sendDownstreamEndOfStream, triggerDownstreamUnsubscribed, initial)
 
-	return downstream, triggerDownstreamUnsubscribed.Resolve
+	return downstream, triggerDownstreamUnsubscribed.Emit
 }
 
 func (x *ReplaySubject[T]) AddSource(source Observable[T], endOfStreamPropagation EndOfStreamPropagationPolicy) {
-	PublishTo(PublishToArgs[T]{Source: source, Sink: x, PropogateEndOfStream: bool(endOfStreamPropagation)})
+	PublishTo(x.env, source, x, endOfStreamPropagation)
 }
 
 func (x *ReplaySubject[T]) OnEndOfStream(listener func()) func() {

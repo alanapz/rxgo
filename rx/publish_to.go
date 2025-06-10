@@ -4,30 +4,23 @@ import (
 	u "alanpinder.com/rxgo/v2/utils"
 )
 
-type PublishToArgs[T any] struct {
-	Environment          *RxEnvironment
-	Source               Observable[T]
-	Sink                 Subject[T]
-	PropogateEndOfStream bool
-}
+func PublishTo[T any](env *RxEnvironment, source Observable[T], sink Subject[T], endOfStreamPropagation EndOfStreamPropagationPolicy) {
 
-func PublishTo[T any](args PublishToArgs[T]) {
+	u.Require(env, source, sink)
 
-	u.Require(args.Environment, args.Source, args.Sink)
-
-	sinkEndofStream, closeSinkEndOfStreamChannel := NewChannel[u.Never](args.Environment, 0)
+	sinkEndofStream, closeSinkEndOfStreamChannel := NewChannel[u.Never](env, 0)
 
 	u.GoRun(func() {
 
-		defer closeSinkEndOfStreamChannel.Resolve()
+		defer closeSinkEndOfStreamChannel.Emit()
 
 		// Important: Sink can become end-of-stream via other publishers
 		// We need to thus add a listener for sink end-of-strea
-		defer args.Sink.OnEndOfStream(closeSinkEndOfStreamChannel.Resolve)()
+		defer sink.OnEndOfStream(closeSinkEndOfStreamChannel.Emit)()
 
 		drainObservable(drainObservableArgs[T]{
-			Environment:            args.Environment,
-			Source:                 args.Source,
+			Environment:            env,
+			Source:                 source,
 			Downstream:             nil, // Not used
 			DownstreamUnsubscribed: sinkEndofStream,
 			NewLoopContext: func() drainObservableLoopContext[T] {
@@ -35,11 +28,11 @@ func PublishTo[T any](args PublishToArgs[T]) {
 					onSelection: func(msg *u.SelectReceiveMessage[T]) AfterSelectionResult {
 
 						if msg.Selected && msg.HasValue {
-							args.Environment.Error(args.Sink.Next(msg.Value))
+							env.Error(sink.Next(msg.Value))
 						}
 
-						if msg.Selected && msg.EndOfStream && args.PropogateEndOfStream {
-							args.Environment.Error(args.Sink.EndOfStream())
+						if msg.Selected && msg.EndOfStream && endOfStreamPropagation == PropogateEndOfStream {
+							env.Error(sink.EndOfStream())
 						}
 
 						return DropMessage

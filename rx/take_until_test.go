@@ -26,7 +26,7 @@ func TestTakeUntilWithTimer(t *testing.T) {
 	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s3", t: t, wg: &wg, source: source, expected: u.Of(1, 2)}))
 
 	wg.Wait()
-	cleanup.Resolve()
+	cleanup.Emit()
 }
 
 func TestTakeUntilWithSubjectAfter(t *testing.T) {

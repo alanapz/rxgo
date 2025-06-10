@@ -74,6 +74,10 @@ func Zero[T any]() T {
 	return value
 }
 
+func Panic(err error) {
+	panic(err)
+}
+
 func DoNothing() {
 
 }

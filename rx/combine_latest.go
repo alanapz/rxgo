@@ -32,7 +32,12 @@ func CombineLatest[T any](sources ...Observable[T]) Observable[[]CombineLatestRe
 		}
 
 		for index, source := range sources {
-			upstream, unsubscribe := source.Subscribe(args.Environment)
+			upstream, unsubscribe, err := source.Subscribe(args.Environment)
+
+			if err != nil {
+
+			}
+
 			defer unsubscribe()
 
 			ctx.sources[index] = &combineLatestSource[T]{

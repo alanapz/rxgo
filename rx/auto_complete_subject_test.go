@@ -22,14 +22,15 @@ func TestAutoCompleteSubjectAlreadyCompleted(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	var cleanup u.Event
+
+	cleanup, emitCleanup := env.NewEvent()
 
 	cleanup.Add(addTestSubscriber(testSubscriberArgs[string]{env: env, name: "s1", t: t, wg: &wg, source: subject, expected: expected}))
 	cleanup.Add(addTestSubscriber(testSubscriberArgs[string]{env: env, name: "s2", t: t, wg: &wg, source: subject, expected: expected}))
 	cleanup.Add(addTestSubscriber(testSubscriberArgs[string]{env: env, name: "s3", t: t, wg: &wg, source: subject, expected: expected}))
 
 	wg.Wait()
-	cleanup.Resolve()
+	emitCleanup()
 }
 
 func TestAutoCompleteSubject(t *testing.T) {

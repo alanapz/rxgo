@@ -2,5 +2,5 @@ package rx
 
 type Disposable interface {
 	IsDisposed() bool
-	Dispose()
+	Dispose() error
 }
