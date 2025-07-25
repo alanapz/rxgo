@@ -10,7 +10,7 @@ import (
 
 func TestMerge(t *testing.T) {
 
-	cleanupTest, env := prepareTest(t)
+	cleanupTest, ctx := prepareTest(t)
 	defer cleanupTest()
 
 	source := Merge(
@@ -22,23 +22,23 @@ func TestMerge(t *testing.T) {
 	var wg sync.WaitGroup
 	var cleanup u.Event
 
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s1", t: t, wg: &wg, source: source, expected: u.Of(7, 8, 9, 14, 16, 18, 4, 5, 6, 1, 2, 3)}))
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s2", t: t, wg: &wg, source: source, expected: u.Of(7, 8, 9, 14, 16, 18, 4, 5, 6, 1, 2, 3)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{ctx: ctx, name: "s1", t: t, wg: &wg, source: source, expected: u.Of(7, 8, 9, 14, 16, 18, 4, 5, 6, 1, 2, 3)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{ctx: ctx, name: "s2", t: t, wg: &wg, source: source, expected: u.Of(7, 8, 9, 14, 16, 18, 4, 5, 6, 1, 2, 3)}))
 
 	wg.Wait()
-	cleanup.Resolve()
+	cleanup.Emit()
 }
 
 func TestMergeRace(t *testing.T) {
 
-	cleanupTest, env := prepareTest(t)
+	cleanupTest, ctx := prepareTest(t)
 	defer cleanupTest()
 
 	// Subject1 wins
 	func() {
 
-		subject1 := NewReplaySubject[int](env, 1)
-		subject2 := NewReplaySubject[int](env, 1)
+		subject1 := NewReplaySubject[int](ctx, 1)
+		subject2 := NewReplaySubject[int](ctx, 1)
 
 		source := Pipe(Merge(subject1, subject2), First[int]())
 
@@ -50,28 +50,28 @@ func TestMergeRace(t *testing.T) {
 		u.GoRun(func() {
 			defer wg.Done()
 
-			env.Error(subject1.Next(1))
+			ctx.Error(subject1.Next(1))
 			time.Sleep(time.Second)
 
-			env.Error(subject2.Next(2))
+			ctx.Error(subject2.Next(2))
 			time.Sleep(time.Second)
 
-			env.Error(subject1.EndOfStream())
-			env.Error(subject2.EndOfStream())
+			ctx.Error(subject1.EndOfStream())
+			ctx.Error(subject2.EndOfStream())
 		})
 
-		cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s1", t: t, wg: &wg, source: source, expected: u.Of(1)}))
-		cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s2", t: t, wg: &wg, source: source, expected: u.Of(1)}))
+		cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{ctx: ctx, name: "s1", t: t, wg: &wg, source: source, expected: u.Of(1)}))
+		cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{ctx: ctx, name: "s2", t: t, wg: &wg, source: source, expected: u.Of(1)}))
 
 		wg.Wait()
-		cleanup.Resolve()
+		cleanup.Emit()
 	}()
 
 	// Subject2 wins
 	func() {
 
-		subject1 := NewReplaySubject[int](env, 1)
-		subject2 := NewReplaySubject[int](env, 1)
+		subject1 := NewReplaySubject[int](ctx, 1)
+		subject2 := NewReplaySubject[int](ctx, 1)
 
 		source := Pipe(Merge(subject1, subject2), First[int]())
 
@@ -83,21 +83,21 @@ func TestMergeRace(t *testing.T) {
 		u.GoRun(func() {
 			defer wg.Done()
 
-			env.Error(subject2.Next(2))
+			ctx.Error(subject2.Next(2))
 			time.Sleep(time.Second)
 
-			env.Error(subject1.Next(1))
+			ctx.Error(subject1.Next(1))
 			time.Sleep(time.Second)
 
-			env.Error(subject1.EndOfStream())
-			env.Error(subject2.EndOfStream())
+			ctx.Error(subject1.EndOfStream())
+			ctx.Error(subject2.EndOfStream())
 		})
 
-		cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s1", t: t, wg: &wg, source: source, expected: u.Of(2)}))
-		cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s2", t: t, wg: &wg, source: source, expected: u.Of(2)}))
+		cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{ctx: ctx, name: "s1", t: t, wg: &wg, source: source, expected: u.Of(2)}))
+		cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{ctx: ctx, name: "s2", t: t, wg: &wg, source: source, expected: u.Of(2)}))
 
 		wg.Wait()
-		cleanup.Resolve()
+		cleanup.Emit()
 	}()
 
 }

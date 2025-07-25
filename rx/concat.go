@@ -16,16 +16,22 @@ func Concat[T any](sources ...Observable[T]) Observable[T] {
 		return sources[0]
 	}
 
-	return NewUnicastObservable(func(args UnicastObserverArgs[T]) {
+	return NewUnicastObservable(func(ctx *Context, downstream chan<- T, downstreamUnsubscribed <-chan u.Never) error {
+
 		for source := range slices.Values(sources) {
-			if drainObservable(drainObservableArgs[T]{
-				Environment:            args.Environment,
+
+			err := drainObservable(drainObservableArgs[T]{
+				Context:                ctx,
 				Source:                 source,
-				Downstream:             args.Downstream,
-				DownstreamUnsubscribed: args.DownstreamUnsubscribed,
-			}) == u.DoneResult {
-				return
+				Downstream:             downstream,
+				DownstreamUnsubscribed: downstreamUnsubscribed,
+			})
+
+			if err != nil {
+				return err
 			}
 		}
+
+		return nil
 	})
 }

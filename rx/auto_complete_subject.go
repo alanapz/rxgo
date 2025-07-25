@@ -12,52 +12,55 @@ An AutoComplete subject onlt accept one value, and completes after single value.
 */
 
 type AutoCompleteSubject[T any] struct {
-	env         *RxEnvironment
+	ctx         *Context
 	lock        *sync.Mutex
 	subscribers *subscriberList[T]
-	disposed    bool
+	d           *ContextDisposable
 }
 
 var _ Subject[any] = (*AutoCompleteSubject[any])(nil)
+var _ Disposable = (*AutoCompleteSubject[any])(nil)
 
-func NewAutoCompleteSubject[T any](env *RxEnvironment) *AutoCompleteSubject[T] {
+func NewAutoCompleteSubject[T any](ctx *Context) (*AutoCompleteSubject[T], error) {
 
 	var lock sync.Mutex
 
-	subject := &AutoCompleteSubject[T]{
-		env:         env,
-		lock:        &lock,
-		subscribers: NewSubscriberList[T](env, &lock),
+	var disposable *ContextDisposable
+
+	if err := u.Wrap(NewContextDisposable(ctx, &lock))(&disposable); err != nil {
+		return nil, err
 	}
 
-	env.AddTryCleanup(subject.EndOfStream)
-	return subject
+	subject := &AutoCompleteSubject[T]{
+		ctx:         ctx,
+		lock:        &lock,
+		subscribers: NewSubscriberList[T](ctx, &lock),
+		d:           disposable,
+	}
+
+	defer u.Lock(&lock)()
+
+	if err := subject.d.AddCleanup(subject.cleanup); err != nil {
+		return nil, err
+	}
+
+	return subject, nil
 }
 
 func (x *AutoCompleteSubject[T]) IsDisposed() bool {
-
-	x.lock.Lock()
-	defer x.lock.Unlock()
-
-	return x.disposed
+	return x.d.IsDisposed()
 }
 
-func (x *AutoCompleteSubject[T]) Dispose() error {
+func (x *AutoCompleteSubject[T]) IsDisposalInProgress() bool {
+	return x.d.IsDisposalInProgress()
+}
 
-	x.lock.Lock()
-	defer x.lock.Unlock()
+func (x *AutoCompleteSubject[T]) Dispose() {
+	x.d.Dispose()
+}
 
-	if x.disposed {
-		return nil
-	}
-
-	x.disposed = true
-
-	if err := x.subscribers.EndOfStream(); err != nil {
-		return err
-	}
-
-	return nil
+func (x *AutoCompleteSubject[T]) OnDisposalComplete() <-chan Void {
+	return x.d.OnDisposalComplete()
 }
 
 func (x *AutoCompleteSubject[T]) Next(values ...T) error {
@@ -67,11 +70,10 @@ func (x *AutoCompleteSubject[T]) Next(values ...T) error {
 		return fmt.Errorf("AutoCompleteSubject only supports a single value - additional values will be dropped")
 	}
 
-	x.lock.Lock()
-	defer x.lock.Unlock()
+	defer u.Lock(x.lock)()
 
-	if x.disposed {
-		return ErrDisposed
+	if x.IsDisposed() {
+		return u.ErrDisposed
 	}
 
 	if err := x.subscribers.Next(values...); err != nil {
@@ -87,50 +89,69 @@ func (x *AutoCompleteSubject[T]) Next(values ...T) error {
 
 func (x *AutoCompleteSubject[T]) EndOfStream() error {
 
-	x.lock.Lock()
-	defer x.lock.Unlock()
+	defer u.Lock(x.lock)()
 
-	if x.disposed {
-		return ErrDisposed
+	if x.IsDisposed() {
+		return u.ErrDisposed
 	}
 
 	return x.subscribers.EndOfStream()
 }
 
-func (x *AutoCompleteSubject[T]) Subscribe(env *RxEnvironment) (<-chan T, func(), error) {
+func (x *AutoCompleteSubject[T]) Subscribe(ctx *Context) (<-chan T, func(), error) {
 
-	x.lock.Lock()
-	defer x.lock.Unlock()
+	defer u.Lock(x.lock)()
 
-	if x.disposed {
-		return nil, nil, ErrDisposed
+	if x.IsDisposed() {
+		return nil, nil, u.ErrDisposed
 	}
 
-	downstream, sendDownstreamEndOfStream := NewChannel[T](env, 0)
-	downstreamUnsubscribed, triggerDownstreamUnsubscribed := NewChannel[u.Never](env, 0)
+	var downstream chan T
+	var sendDownstreamEndOfStream func()
+
+	if err := u.Wrap2(NewChannel[T](ctx, 0))(&downstream, &sendDownstreamEndOfStream); err != nil {
+		return nil, nil, err
+	}
+
+	var downstreamUnsubscribed chan u.Never
+	var triggerDownstreamUnsubscribed func()
+
+	if err := u.Wrap2(NewChannel[u.Never](ctx, 0))(&downstreamUnsubscribed, &triggerDownstreamUnsubscribed); err != nil {
+		return nil, nil, err
+	}
 
 	endOfStream := x.subscribers.IsEndOfStream()
 	latestValue, hasValue := x.subscribers.GetLatestValue()
 
 	if endOfStream && hasValue {
-		sendValuesThenEndOfStreamAsync(env, downstream, downstreamUnsubscribed, latestValue)
+		sendValuesThenEndOfStreamAsync(ctx, downstream, downstreamUnsubscribed, latestValue)
 	} else if endOfStream {
-		sendValuesThenEndOfStreamAsync(env, downstream, downstreamUnsubscribed)
+		sendValuesThenEndOfStreamAsync(ctx, downstream, downstreamUnsubscribed)
 	} else if err := x.subscribers.AddSubscriber(downstream, downstreamUnsubscribed, sendDownstreamEndOfStream, triggerDownstreamUnsubscribed); err != nil {
 		return nil, nil, err
 	}
 
-	return downstream, triggerDownstreamUnsubscribed.Emit, nil
+	return downstream, triggerDownstreamUnsubscribed, nil
 }
 
 func (x *AutoCompleteSubject[T]) AddSource(source Observable[T], endOfStreamPropagation EndOfStreamPropagationPolicy) {
-	PublishTo(x.env, source, x, endOfStreamPropagation)
+	PublishTo(x.ctx, source, x, endOfStreamPropagation)
 }
 
 func (x *AutoCompleteSubject[T]) OnEndOfStream(listener func()) func() {
 
-	x.lock.Lock()
-	defer x.lock.Unlock()
+	defer u.Lock(x.lock)()
 
 	return x.subscribers.OnEndOfStream(listener)
+}
+
+func (x *AutoCompleteSubject[T]) cleanup() error {
+
+	u.AssertLocked(x.lock)
+
+	if err := x.subscribers.EndOfStream(); err != nil {
+		return err
+	}
+
+	return nil
 }

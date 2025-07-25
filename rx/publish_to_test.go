@@ -9,23 +9,23 @@ import (
 
 func TestPublishToAutoCompleteSubject(t *testing.T) {
 
-	cleanupTest, env := prepareTest(t)
+	cleanupTest, ctx := prepareTest(t)
 	defer cleanupTest()
 
 	// Timers send to Subject1 sends to subject2
-	subject := NewAutoCompleteSubject[int](env)
-	subject2 := NewAutoCompleteSubject[int](env)
+	subject := NewAutoCompleteSubject[int](ctx)
+	subject2 := NewAutoCompleteSubject[int](ctx)
 
 	var wg sync.WaitGroup
 	var cleanup u.Event
 
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s1-1", t: t, wg: &wg, source: subject, expected: u.Of(1)}))
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s1-2", t: t, wg: &wg, source: subject, expected: u.Of(1)}))
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s1-3", t: t, wg: &wg, source: subject, expected: u.Of(1)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{ctx: ctx, name: "s1-1", t: t, wg: &wg, source: subject, expected: u.Of(1)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{ctx: ctx, name: "s1-2", t: t, wg: &wg, source: subject, expected: u.Of(1)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{ctx: ctx, name: "s1-3", t: t, wg: &wg, source: subject, expected: u.Of(1)}))
 
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s2-1", t: t, wg: &wg, source: subject2, expected: u.Of(2)}))
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s2-2", t: t, wg: &wg, source: subject2, expected: u.Of(2)}))
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s2-3", t: t, wg: &wg, source: subject2, expected: u.Of(2)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{ctx: ctx, name: "s2-1", t: t, wg: &wg, source: subject2, expected: u.Of(2)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{ctx: ctx, name: "s2-2", t: t, wg: &wg, source: subject2, expected: u.Of(2)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{ctx: ctx, name: "s2-3", t: t, wg: &wg, source: subject2, expected: u.Of(2)}))
 
 	//subject2.AddSource(Pipe(subject, Map(func(value int) int { return value * 2 })), DoNotPropogateEndOfStream)
 	subject2.AddSource(subject, DoNotPropogateEndOfStream)
@@ -37,7 +37,7 @@ func TestPublishToAutoCompleteSubject(t *testing.T) {
 
 func TestPublishToAutoCompleteSubject2(t *testing.T) {
 
-	cleanupTest, env := prepareTest(t)
+	cleanupTest, ctx := prepareTest(t)
 	defer cleanupTest()
 
 	// Timers send to Subject1 sends to subject2
@@ -48,17 +48,17 @@ func TestPublishToAutoCompleteSubject2(t *testing.T) {
 	var wg sync.WaitGroup
 	var cleanup u.Event
 
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s1-1", t: t, wg: &wg, source: subject, expected: u.Of(1)}))
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s1-2", t: t, wg: &wg, source: subject, expected: u.Of(1)}))
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s1-3", t: t, wg: &wg, source: subject, expected: u.Of(1)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{ctx: ctx, name: "s1-1", t: t, wg: &wg, source: subject, expected: u.Of(1)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{ctx: ctx, name: "s1-2", t: t, wg: &wg, source: subject, expected: u.Of(1)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{ctx: ctx, name: "s1-3", t: t, wg: &wg, source: subject, expected: u.Of(1)}))
 
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s2-1", t: t, wg: &wg, source: subject2, expected: u.Of(2)}))
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s2-2", t: t, wg: &wg, source: subject2, expected: u.Of(2)}))
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s2-3", t: t, wg: &wg, source: subject2, expected: u.Of(2)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{ctx: ctx, name: "s2-1", t: t, wg: &wg, source: subject2, expected: u.Of(2)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{ctx: ctx, name: "s2-2", t: t, wg: &wg, source: subject2, expected: u.Of(2)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{ctx: ctx, name: "s2-3", t: t, wg: &wg, source: subject2, expected: u.Of(2)}))
 
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s3-1", t: t, wg: &wg, source: subject2, expected: u.Of(2)}))
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s3-2", t: t, wg: &wg, source: subject2, expected: u.Of(2)}))
-	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{env: env, name: "s3-3", t: t, wg: &wg, source: subject2, expected: u.Of(2)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{ctx: ctx, name: "s3-1", t: t, wg: &wg, source: subject2, expected: u.Of(2)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{ctx: ctx, name: "s3-2", t: t, wg: &wg, source: subject2, expected: u.Of(2)}))
+	cleanup.Add(addTestSubscriber(testSubscriberArgs[int]{ctx: ctx, name: "s3-3", t: t, wg: &wg, source: subject2, expected: u.Of(2)}))
 
 	subject2.AddSource(Pipe(subject, Map(func(value int) int { return value * 2 })), PropogateEndOfStream)
 	subject2.AddSource(Pipe(subject3, Map(func(value int) int { return value * 2 })), PropogateEndOfStream)

@@ -6,35 +6,35 @@ import (
 
 func Take[T any](limit uint) OperatorFunction[T, T] {
 	return func(source Observable[T]) Observable[T] {
-		return NewUnicastObservable(func(args UnicastObserverArgs[T]) {
+		return NewUnicastObservable(func(ctx *Context, downstream chan<- T, downstreamUnsubscribed <-chan u.Never) error {
 
 			var count uint
 
-			drainObservable(drainObservableArgs[T]{
-				Environment:            args.Environment,
+			return drainObservable(drainObservableArgs[T]{
+				Context:                ctx,
 				Source:                 source,
-				Downstream:             args.Downstream,
-				DownstreamUnsubscribed: args.DownstreamUnsubscribed,
+				Downstream:             downstream,
+				DownstreamUnsubscribed: downstreamUnsubscribed,
 				NewLoopContext: func() drainObservableLoopContext[T] {
+
 					return drainObservableLoopContext[T]{
-						beforeSelection: func(*[]u.SelectItem) u.SelectResult {
+
+						BeforeSelection: func(*[]u.SelectItem) error {
+
 							if count == limit {
-								return u.DoneResult
+								return ErrEndOfStream
 							}
-							return u.ContinueResult
+
+							return nil
 						},
-						onSelection: func(msg *u.SelectReceiveMessage[T]) AfterSelectionResult {
+
+						AfterSelection: func(msg *drainObservableMessage[T]) error {
 
 							if msg.HasValue {
-
 								count++
-
-								if count > limit {
-									return StopAndContinueNext
-								}
 							}
 
-							return ContinueMessage
+							return nil
 						},
 					}
 				},

@@ -1,27 +1,39 @@
 package rx
 
 import (
+	"errors"
+
 	u "alanpinder.com/rxgo/v2/utils"
 )
+
+var errNotifiedSignalled = errors.New("Notifier signalled")
 
 func TakeUntil[T any](notifiers ...Observable[Void]) OperatorFunction[T, T] {
 
 	return func(source Observable[T]) Observable[T] {
-		return NewUnicastObservable(func(args UnicastObserverArgs[T]) {
+		return NewUnicastObservable(func(ctx *Context, downstream chan<- T, downstreamUnsubscribed <-chan u.Never) error {
 
-			notifier, unsubscribeFromNotifier := Pipe(Merge(notifiers...), First[Void]()).Subscribe(args.Environment)
+			var notifier <-chan Void
+			var unsubscribeFromNotifier func()
+
+			if err := u.Wrap2(Pipe(Merge(notifiers...), First[Void]()).Subscribe(ctx))(&notifier, &unsubscribeFromNotifier); err != nil {
+				return err
+			}
+
 			defer unsubscribeFromNotifier()
 
-			drainObservable(drainObservableArgs[T]{
-				Environment:            args.Environment,
+			return drainObservable(drainObservableArgs[T]{
+				Context:                ctx,
 				Source:                 source,
-				Downstream:             args.Downstream,
-				DownstreamUnsubscribed: args.DownstreamUnsubscribed,
+				Downstream:             downstream,
+				DownstreamUnsubscribed: downstreamUnsubscribed,
 				NewLoopContext: func() drainObservableLoopContext[T] {
+
 					return drainObservableLoopContext[T]{
-						beforeSelection: func(items *[]u.SelectItem) u.SelectResult {
-							u.Append(items, u.SelectDone(notifier))
-							return u.ContinueResult
+
+						BeforeSelection: func(items *[]u.SelectItem) error {
+							u.Append(items, u.SelectDone(notifier, u.Val(errNotifiedSignalled)))
+							return nil
 						},
 					}
 				},

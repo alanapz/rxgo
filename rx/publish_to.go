@@ -4,41 +4,53 @@ import (
 	u "alanpinder.com/rxgo/v2/utils"
 )
 
-func PublishTo[T any](env *RxEnvironment, source Observable[T], sink Subject[T], endOfStreamPropagation EndOfStreamPropagationPolicy) {
+func PublishTo[T any](ctx *Context, source Observable[T], sink Subject[T], endOfStreamPropagation EndOfStreamPropagationPolicy) error {
 
-	u.Require(env, source, sink)
+	var sinkEndOfStream chan u.Never
+	var sendSinkEndOfStream func()
 
-	sinkEndofStream, closeSinkEndOfStreamChannel := NewChannel[u.Never](env, 0)
+	if err := u.Wrap2(NewChannel[u.Never](ctx, 0))(&sinkEndOfStream, &sendSinkEndOfStream); err != nil {
+		return err
+	}
 
-	u.GoRun(func() {
+	GoRun(ctx, func() {
 
-		defer closeSinkEndOfStreamChannel.Emit()
+		defer sendSinkEndOfStream()
 
 		// Important: Sink can become end-of-stream via other publishers
 		// We need to thus add a listener for sink end-of-strea
-		defer sink.OnEndOfStream(closeSinkEndOfStreamChannel.Emit)()
+		defer sink.OnEndOfStream(sendSinkEndOfStream)()
 
 		drainObservable(drainObservableArgs[T]{
-			Environment:            env,
+			Context:                ctx,
 			Source:                 source,
 			Downstream:             nil, // Not used
-			DownstreamUnsubscribed: sinkEndofStream,
+			DownstreamUnsubscribed: sinkEndOfStream,
 			NewLoopContext: func() drainObservableLoopContext[T] {
 				return drainObservableLoopContext[T]{
-					onSelection: func(msg *u.SelectReceiveMessage[T]) AfterSelectionResult {
 
-						if msg.Selected && msg.HasValue {
-							env.Error(sink.Next(msg.Value))
+					AfterSelection: func(msg *drainObservableMessage[T]) error {
+
+						if msg.Valid && msg.HasValue {
+
+							if err := sink.Next(msg.Value); err != nil {
+								return err
+							}
 						}
 
-						if msg.Selected && msg.EndOfStream && endOfStreamPropagation == PropogateEndOfStream {
-							env.Error(sink.EndOfStream())
+						if msg.Valid && msg.EndOfStream && endOfStreamPropagation == PropogateEndOfStream {
+
+							if err := sink.EndOfStream(); err != nil {
+								return err
+							}
 						}
 
-						return DropMessage
+						return errDropMessage
 					},
 				}
 			},
 		})
 	})
+
+	return nil
 }

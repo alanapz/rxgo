@@ -11,7 +11,7 @@ import (
 	u "alanpinder.com/rxgo/v2/utils"
 )
 
-func prepareTest(t *testing.T) (func(), *RxEnvironment) {
+func prepareTest(t *testing.T) (func(), *Context) {
 
 	conditions := u.GetConditions()
 
@@ -47,7 +47,7 @@ func prepareTest(t *testing.T) (func(), *RxEnvironment) {
 }
 
 type testSubscriberArgs[T any] struct {
-	env      *RxEnvironment
+	ctx      *Context
 	name     string
 	t        *testing.T
 	wg       *sync.WaitGroup

@@ -1,11 +1,12 @@
 package utils
 
 import (
-	"fmt"
 	"reflect"
 	"slices"
 	"sync"
 )
+
+type Void = struct{}
 
 type Never interface {
 	unimplementable()
@@ -13,6 +14,12 @@ type Never interface {
 
 func Of[T any](values ...T) []T {
 	return values
+}
+
+func Val[T any](value T) func() T {
+	return func() T {
+		return value
+	}
 }
 
 func Append[T any](slice *[]T, values ...T) {
@@ -27,13 +34,12 @@ func Assert(condition bool) {
 
 var nullableTypes = Of(reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice)
 
-func Require(values ...any) {
-	for index, value := range values {
-		reflectedValue := reflect.ValueOf(value)
-		if slices.Contains(nullableTypes, reflectedValue.Kind()) && reflectedValue.IsNil() {
-			panic(fmt.Sprintf("%d parameter required", index+1))
-		}
+func Require[T any](value T) T {
+	reflectedValue := reflect.ValueOf(value)
+	if slices.Contains(nullableTypes, reflectedValue.Kind()) && reflectedValue.IsNil() {
+		panic("parameter required")
 	}
+	return value
 }
 
 func Coalesce[T any](values ...T) T {
@@ -85,9 +91,18 @@ func DoNothing() {
 const mutexLocked = 1
 const mutexUnlocked = 0
 
-func AssertLocked(m *sync.Mutex) bool {
+func Lock(m *sync.Mutex) func() {
+	m.Lock()
+	return func() {
+		defer m.Unlock()
+	}
+}
+
+func AssertLocked(m *sync.Mutex) {
 	state := reflect.ValueOf(m).Elem().FieldByName("mu").FieldByName("state")
-	return state.Int()&mutexLocked == mutexLocked
+	if state.Int()&mutexLocked != mutexLocked {
+		panic("mutex was not held")
+	}
 }
 
 func AssertUnlocked(m *sync.Mutex) bool {

@@ -2,23 +2,30 @@ package rx
 
 import u "alanpinder.com/rxgo/v2/utils"
 
-func Tap[T any](tapValue func(T)) OperatorFunction[T, T] {
+func Tap[T any](tapConsumer func(T) error) OperatorFunction[T, T] {
 	return func(source Observable[T]) Observable[T] {
-		return NewUnicastObservable(func(args UnicastObserverArgs[T]) {
-			drainObservable(drainObservableArgs[T]{
-				Environment:            args.Environment,
-				Source:                 source,
-				Downstream:             args.Downstream,
-				DownstreamUnsubscribed: args.DownstreamUnsubscribed,
-				NewLoopContext: func() drainObservableLoopContext[T] {
-					return drainObservableLoopContext[T]{
-						onSelection: func(msg *u.SelectReceiveMessage[T]) AfterSelectionResult {
+		return NewUnicastObservable(func(ctx *Context, downstream chan<- T, downstreamUnsubscribed <-chan u.Never) error {
 
-							if tapValue != nil && msg.HasValue {
-								tapValue(msg.Value)
+			return drainObservable(drainObservableArgs[T]{
+				Context:                ctx,
+				Source:                 source,
+				Downstream:             downstream,
+				DownstreamUnsubscribed: downstreamUnsubscribed,
+				NewLoopContext: func() drainObservableLoopContext[T] {
+
+					return drainObservableLoopContext[T]{
+
+						AfterSelection: func(msg *drainObservableMessage[T]) error {
+
+							if tapConsumer != nil && msg.HasValue {
+
+								if err := tapConsumer(msg.Value); err != nil {
+									return err
+								}
+
 							}
 
-							return ContinueMessage
+							return nil
 						},
 					}
 				},

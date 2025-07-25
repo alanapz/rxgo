@@ -4,20 +4,27 @@ import u "alanpinder.com/rxgo/v2/utils"
 
 func Count[T any]() OperatorFunction[T, int] {
 	return func(source Observable[T]) Observable[int] {
-		return NewUnicastObservable(func(args UnicastObserverArgs[int]) {
+		return NewUnicastObservable(func(ctx *Context, downstream chan<- int, downstreamUnsubscribed <-chan u.Never) error {
 
 			var count int
 
-			drainObservable(drainObservableArgs[T]{
-				Environment:            args.Environment,
+			return drainObservable(drainObservableArgs[T]{
+				Context:                ctx,
 				Source:                 source,
 				Downstream:             nil, // Not used
-				DownstreamUnsubscribed: args.DownstreamUnsubscribed,
+				DownstreamUnsubscribed: downstreamUnsubscribed,
 				NewLoopContext: func() drainObservableLoopContext[T] {
+
 					return drainObservableLoopContext[T]{
-						sendValue: func(chan<- T, <-chan u.Never, T) u.SelectResult {
+
+						SendValue: func(chan<- T, <-chan u.Never, T) error {
+
 							count++
-							return u.Selection(u.SelectDone(args.DownstreamUnsubscribed), u.SelectSend(args.Downstream, count))
+
+							return u.Selection(ctx,
+								u.SelectDone(downstreamUnsubscribed, u.Val(ErrDownstreamUnsubscribed)),
+								u.SelectSend(downstream, count),
+							)
 						},
 					}
 				},

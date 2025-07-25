@@ -2,23 +2,36 @@ package rx
 
 import u "alanpinder.com/rxgo/v2/utils"
 
-func Filter[T any](filter func(T) bool) OperatorFunction[T, T] {
+func Filter[T any](filter func(T) (bool, error)) OperatorFunction[T, T] {
 	return func(source Observable[T]) Observable[T] {
-		return NewUnicastObservable(func(args UnicastObserverArgs[T]) {
-			drainObservable(drainObservableArgs[T]{
-				Environment:            args.Environment,
-				Source:                 source,
-				Downstream:             args.Downstream,
-				DownstreamUnsubscribed: args.DownstreamUnsubscribed,
-				NewLoopContext: func() drainObservableLoopContext[T] {
-					return drainObservableLoopContext[T]{
-						onSelection: func(msg *u.SelectReceiveMessage[T]) AfterSelectionResult {
+		return NewUnicastObservable(func(ctx *Context, downstream chan<- T, downstreamUnsubscribed <-chan u.Never) error {
 
-							if msg.HasValue && !filter(msg.Value) {
-								return DropMessage
+			return drainObservable(drainObservableArgs[T]{
+				Context:                ctx,
+				Source:                 source,
+				Downstream:             downstream,
+				DownstreamUnsubscribed: downstreamUnsubscribed,
+				NewLoopContext: func() drainObservableLoopContext[T] {
+
+					return drainObservableLoopContext[T]{
+
+						AfterSelection: func(msg *drainObservableMessage[T]) error {
+
+							if !msg.HasValue {
+								return nil
 							}
 
-							return ContinueMessage
+							var keepMessage bool
+
+							if err := u.Wrap(filter(msg.Value))(&keepMessage); err != nil {
+								return err
+							}
+
+							if !keepMessage {
+								return errDropMessage
+							}
+
+							return nil
 						},
 					}
 				},

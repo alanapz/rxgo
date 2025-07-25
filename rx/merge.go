@@ -2,7 +2,6 @@ package rx
 
 import (
 	"fmt"
-	"sync"
 
 	u "alanpinder.com/rxgo/v2/utils"
 )
@@ -17,28 +16,35 @@ func Merge[T any](sources ...Observable[T]) Observable[T] {
 		return sources[0]
 	}
 
-	return NewUnicastObservable(func(args UnicastObserverArgs[T]) {
+	return NewUnicastObservable(func(ctx *Context, downstream chan<- T, downstreamUnsubscribed <-chan u.Never) error {
 
-		var wg sync.WaitGroup
+		var wg u.WaitGroup
 
 		wg.Add(len(sources))
 
 		for index, source := range sources {
 
-			onInnerObservableComplete := u.NewCondition(fmt.Sprintf("Waiting for inner observable for source #%d to complete", index))
+			label := fmt.Sprintf("Waiting for inner observable for source #%d to complete", index)
 
-			args.Environment.Execute(func() {
+			GoRunWithLabel(ctx, label, func() {
+
 				defer wg.Done()
-				defer onInnerObservableComplete()
-				drainObservable(drainObservableArgs[T]{
-					Environment:            args.Environment,
+
+				err := drainObservable(drainObservableArgs[T]{
+					Context:                ctx,
 					Source:                 source,
-					Downstream:             args.Downstream,
-					DownstreamUnsubscribed: args.DownstreamUnsubscribed,
+					Downstream:             downstream,
+					DownstreamUnsubscribed: downstreamUnsubscribed,
 				})
+
+				if err != nil {
+					wg.Error(err)
+				}
 			})
 		}
 
 		wg.Wait()
+
+		return wg.GetError()
 	})
 }

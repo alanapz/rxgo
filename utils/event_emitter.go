@@ -8,15 +8,14 @@ import (
 )
 
 type ListenerFunc func()
-type CancelFunc func()
 
-type EventState string
+type EventState = string
 
 const ExecutionInProgress EventState = "executionInProgress"
 const RunningPostExecutionHooks EventState = "runningPostExecutionHooks"
 const ExecutionComplete EventState = "complete"
 
-type Event struct {
+type EventEmitter struct {
 	lock               sync.Mutex
 	state              EventState
 	nextListenerId     uint
@@ -24,26 +23,25 @@ type Event struct {
 	postExecutionHooks map[uint]ListenerFunc
 }
 
-func (x *Event) String() string {
-	return fmt.Sprintf("%d listeners, state=%v", len(x.listeners), x.state)
-}
-
-func (x *Event) IsInProgress() bool {
+func (x *EventEmitter) NewEventEmitter() *EventEmitter {
 	return x.state == ExecutionInProgress || x.state == RunningPostExecutionHooks
 }
 
-func (x *Event) IsComplete() bool {
+func (x *EventEmitter) IsExecutionInProgress() bool {
+	return x.state == ExecutionInProgress || x.state == RunningPostExecutionHooks
+}
+
+func (x *EventEmitter) IsExecutionComplete() bool {
 	return x.state == ExecutionComplete
 }
 
-func (x *Event) Add(listener ListenerFunc) CancelFunc {
+func (x *EventEmitter) AddListener(listener ListenerFunc) {
 
 	Assert(listener != nil)
 
-	x.lock.Lock()
-	defer x.lock.Unlock()
+	defer Lock(&x.lock)()
 
-	if x.IsInProgress() {
+	if x.IsExecutionInProgress() {
 		panic("execution in progress")
 	}
 
@@ -52,27 +50,18 @@ func (x *Event) Add(listener ListenerFunc) CancelFunc {
 	}
 
 	listenerId := x.nextListenerId
+
 	x.nextListenerId++
-
 	x.listeners[listenerId] = listener
-
-	return func() {
-
-		x.lock.Lock()
-		defer x.lock.Unlock()
-
-		delete(x.listeners, listenerId)
-	}
 }
 
-func (x *Event) AddPostExecutionHook(postExecutionHook ListenerFunc) CancelFunc {
+func (x *EventEmitter) AddPostExecutionHook(postExecutionHook ListenerFunc) {
 
 	Assert(postExecutionHook != nil)
 
-	x.lock.Lock()
-	defer x.lock.Unlock()
+	defer Lock(&x.lock)()
 
-	if x.IsInProgress() {
+	if x.IsExecutionInProgress() {
 		panic("execution in progress")
 	}
 
@@ -81,23 +70,14 @@ func (x *Event) AddPostExecutionHook(postExecutionHook ListenerFunc) CancelFunc 
 	}
 
 	listenerId := x.nextListenerId
+
 	x.nextListenerId++
-
 	x.postExecutionHooks[listenerId] = postExecutionHook
-
-	return func() {
-
-		x.lock.Lock()
-		defer x.lock.Unlock()
-
-		delete(x.postExecutionHooks, listenerId)
-	}
 }
 
-func (x *Event) Emit() {
+func (x *EventEmitter) Emit() {
 
-	x.lock.Lock()
-	defer x.lock.Unlock()
+	defer Lock(&x.lock)()
 
 	if x.IsInProgress() || x.IsComplete() {
 		return
@@ -125,4 +105,8 @@ func (x *Event) Emit() {
 	}
 
 	x.state = ExecutionComplete
+}
+
+func (x *EventEmitter) String() string {
+	return fmt.Sprintf("%d listeners, state=%v", len(x.listeners), x.state)
 }

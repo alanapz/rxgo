@@ -4,13 +4,7 @@ import (
 	u "alanpinder.com/rxgo/v2/utils"
 )
 
-type UnicastObserverArgs[T any] struct {
-	Environment            *RxEnvironment
-	Downstream             chan<- T
-	DownstreamUnsubscribed <-chan u.Never
-}
-
-type NewUnicastObserver[T any] = func(args UnicastObserverArgs[T])
+type NewUnicastObserver[T any] = func(ctx *Context, downstream chan<- T, downstreamUnsubscribed <-chan u.Never) error
 
 type UnicastObservable[T any] struct {
 	onNewObserver NewUnicastObserver[T]
@@ -24,16 +18,33 @@ func NewUnicastObservable[T any](onNewObserver NewUnicastObserver[T]) *UnicastOb
 	}
 }
 
-func (x *UnicastObservable[T]) Subscribe(env *RxEnvironment) (<-chan T, func(), error) {
+func (x *UnicastObservable[T]) Subscribe(ctx *Context) (<-chan T, func(), error) {
 
-	downstream, sendDownstreamEndOfStream := NewChannel[T](env, 0)
-	downstreamUnsubscribed, triggerDownstreamUnsubscribed := NewChannel[u.Never](env, 0)
+	var downstream chan T
+	var sendDownstreamEndOfStream func()
 
-	u.GoRun(func() {
-		defer triggerDownstreamUnsubscribed.Emit()
-		defer sendDownstreamEndOfStream.Emit()
-		x.onNewObserver(UnicastObserverArgs[T]{Environment: env, Downstream: downstream, DownstreamUnsubscribed: downstreamUnsubscribed})
+	if err := u.Wrap2(NewChannel[T](ctx, 0))(&downstream, &sendDownstreamEndOfStream); err != nil {
+		return nil, nil, err
+	}
+
+	var downstreamUnsubscribed chan u.Never
+	var triggerDownstreamUnsubscribed func()
+
+	if err := u.Wrap2(NewChannel[u.Never](ctx, 0))(&downstreamUnsubscribed, &triggerDownstreamUnsubscribed); err != nil {
+		return nil, nil, err
+	}
+
+	GoRun(ctx, func() {
+
+		defer triggerDownstreamUnsubscribed()
+		defer sendDownstreamEndOfStream()
+
+		err := x.onNewObserver(ctx, downstream, downstreamUnsubscribed)
+
+		if err != nil {
+			ctx.Error(err)
+		}
 	})
 
-	return downstream, triggerDownstreamUnsubscribed.Emit
+	return downstream, triggerDownstreamUnsubscribed, nil
 }

@@ -11,7 +11,6 @@ import (
 
 var ErrEndOfStream = errors.New("end of stream")
 var ErrAborted = errors.New("aborted")
-var ErrDisposed = errors.New("disposed")
 
 type messageValue[T any] struct {
 	value       T

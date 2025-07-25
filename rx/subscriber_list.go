@@ -13,7 +13,7 @@ import (
 type subscriberId = uint64
 
 type subscriberList[T any] struct {
-	env              *RxEnvironment
+	ctx              *Context
 	lock             *sync.Mutex
 	nextSubscriberId atomic.Uint64
 	subscribers      map[subscriberId]*messageQueue[T]
@@ -23,9 +23,9 @@ type subscriberList[T any] struct {
 	latestValue      T
 }
 
-func NewSubscriberList[T any](env *RxEnvironment, lock *sync.Mutex) *subscriberList[T] {
+func NewSubscriberList[T any](ctx *Context, lock *sync.Mutex) *subscriberList[T] {
 	return &subscriberList[T]{
-		env:         env,
+		ctx:         ctx,
 		lock:        lock,
 		subscribers: map[subscriberId]*messageQueue[T]{},
 	}

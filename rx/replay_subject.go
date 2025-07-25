@@ -8,7 +8,7 @@ import (
 )
 
 type ReplaySubject[T any] struct {
-	env         *RxEnvironment
+	ctx         *Context
 	lock        *sync.Mutex
 	subscribers *subscriberList[T]
 	window      int
@@ -17,14 +17,14 @@ type ReplaySubject[T any] struct {
 
 var _ Subject[any] = (*ReplaySubject[any])(nil)
 
-func NewReplaySubject[T any](env *RxEnvironment, window int) *ReplaySubject[T] {
+func NewReplaySubject[T any](ctx *Context, window int) *ReplaySubject[T] {
 
 	var lock sync.Mutex
 
 	return &ReplaySubject[T]{
-		env:         env,
+		ctx:         ctx,
 		lock:        &lock,
-		subscribers: NewSubscriberList[T](env, &lock),
+		subscribers: NewSubscriberList[T](ctx, &lock),
 		window:      window,
 	}
 }
@@ -51,7 +51,7 @@ func (x *ReplaySubject[T]) EndOfStream() error {
 	return x.subscribers.EndOfStream()
 }
 
-func (x *ReplaySubject[T]) Subscribe(env *RxEnvironment) (<-chan T, func(), error) {
+func (x *ReplaySubject[T]) Subscribe(ctx *Context) (<-chan T, func(), error) {
 
 	x.lock.Lock()
 	defer x.lock.Unlock()

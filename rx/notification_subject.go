@@ -9,17 +9,17 @@ import (
 type Void = struct{}
 
 type NotificationSubject struct {
-	env         *RxEnvironment
+	ctx         *Context
 	lock        *sync.Mutex
 	subscribers *subscriberList[Void]
-	disposed    bool
+	d           *ContextDisposable
 	signalled   bool
 }
 
 var _ Observable[Void] = (*NotificationSubject)(nil)
 var _ Disposable = (*NotificationSubject)(nil)
 
-func NewNotificationSubject(env *RxEnvironment) *NotificationSubject {
+func NewNotificationSubject(ctx *Context) *NotificationSubject {
 
 	var lock sync.Mutex
 
@@ -34,11 +34,10 @@ func NewNotificationSubject(env *RxEnvironment) *NotificationSubject {
 }
 
 func (x *NotificationSubject) IsDisposed() bool {
-
-	x.lock.Lock()
-	defer x.lock.Unlock()
-
-	return x.disposed
+	return x.d.IsDisposed()
+}
+func (x *NotificationSubject) IsDisposalInProgress() bool {
+	return x.d.IsDisposed()
 }
 
 func (x *NotificationSubject) Dispose() error {
@@ -92,21 +91,43 @@ func (x *NotificationSubject) Signal() error {
 	return nil
 }
 
-func (x *NotificationSubject) Subscribe(env *RxEnvironment) (<-chan Void, func(), error) {
+func (x *NotificationSubject) Subscribe(ctx *Context) (<-chan Void, func(), error) {
 
 	x.lock.Lock()
 	defer x.lock.Unlock()
 
-	downstream, sendDownstreamEndOfStream := NewChannel[Void](env, 0)
-	downstreamUnsubscribed, triggerDownstreamUnsubscribed := NewChannel[u.Never](env, 0)
+	var downstream chan Void
+	var sendDownstreamEndOfStream func()
+
+	if err := u.W2(NewChannel[Void](ctx, 0))(&downstream, &sendDownstreamEndOfStream); err != nil {
+		return nil, nil, err
+	}
+
+	var downstreamUnsubscribed chan u.Never
+	var triggerDownstreamUnsubscribed func()
+
+	if err := u.W2(NewChannel[u.Never](ctx, 0))(&downstreamUnsubscribed, &triggerDownstreamUnsubscribed); err != nil {
+		return nil, nil, err
+	}
 
 	if x.signalled {
-		sendValuesThenEndOfStreamAsync(env, downstream, downstreamUnsubscribed, Void{})
+		sendValuesThenEndOfStreamAsync(ctx, downstream, downstreamUnsubscribed, Void{})
 	} else if x.disposed {
-		sendValuesThenEndOfStreamAsync(env, downstream, downstreamUnsubscribed)
+		sendValuesThenEndOfStreamAsync(ctx, downstream, downstreamUnsubscribed)
 	} else {
 		x.subscribers.AddSubscriber(downstream, downstreamUnsubscribed, sendDownstreamEndOfStream, triggerDownstreamUnsubscribed, nil)
 	}
 
-	return downstream, triggerDownstreamUnsubscribed.Emit
+	return downstream, triggerDownstreamUnsubscribed, nil
+}
+
+func (x *NotificationSubject) cleanup() error {
+
+	u.AssertLocked(x.lock)
+
+	if err := x.subscribers.EndOfStream(); err != nil {
+		return err
+	}
+
+	return nil
 }

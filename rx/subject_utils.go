@@ -6,14 +6,17 @@ import (
 	u "alanpinder.com/rxgo/v2/utils"
 )
 
-func sendValuesThenEndOfStreamAsync[T any](env *RxEnvironment, downstream chan T, downstreamUnsubscribed <-chan u.Never, values ...T) {
+func sendValuesThenEndOfStreamAsync[T any](ctx *Context, downstream chan<- T, downstreamUnsubscribed <-chan u.Never, values ...T) {
 
-	env.Execute(func() {
+	GoRun(ctx, func() {
+
 		for value := range slices.Values(values) {
-			if u.Selection(u.SelectDone(downstreamUnsubscribed), u.SelectSend(downstream, value)) == u.DoneResult {
-				return
+
+			if err := u.Selection(ctx, u.SelectDone(downstreamUnsubscribed, u.Val(ErrDownstreamUnsubscribed)), u.SelectSend(downstream, value)); err != nil {
+				ctx.Error(err)
+				break
 			}
+
 		}
 	})
-
 }

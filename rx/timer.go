@@ -1,13 +1,14 @@
 package rx
 
 import (
+	"errors"
 	"time"
 
 	u "alanpinder.com/rxgo/v2/utils"
 )
 
 func Timer(interval time.Duration) Observable[time.Duration] {
-	return NewUnicastObservable(func(args UnicastObserverArgs[time.Duration]) {
+	return NewUnicastObservable(func(ctx *Context, downstream chan<- time.Duration, downstreamUnsubscribed <-chan u.Never) error {
 
 		startTime := time.Now()
 
@@ -15,14 +16,33 @@ func Timer(interval time.Duration) Observable[time.Duration] {
 
 			timerChannel := time.After(interval)
 
-			msg := u.SelectReceiveMessage[time.Time]{Policy: u.AbortOnClose}
+			var timerSignalled bool
+			var timerResult time.Time
 
-			if u.Selection(u.SelectDone(args.DownstreamUnsubscribed), u.SelectReceive(&timerChannel, &msg)) == u.DoneResult {
-				return
+			if err := u.Selection(ctx,
+				u.SelectDone(downstreamUnsubscribed, u.Val(ErrDownstreamUnsubscribed)),
+				u.SelectReceive(&timerChannel, func(closed bool, value time.Time) error {
+
+					if closed {
+						return errors.New("Upstream timer channel closed unexpectedly")
+					}
+
+					timerSignalled = true
+					timerResult = value
+					return nil
+				}),
+			); err != nil {
+				return err
 			}
 
-			if msg.HasValue && u.Selection(u.SelectDone(args.DownstreamUnsubscribed), u.SelectSend(args.Downstream, msg.Value.Sub(startTime))) == u.DoneResult {
-				return
+			if timerSignalled {
+
+				if err := u.Selection(ctx,
+					u.SelectDone(downstreamUnsubscribed, u.Val(ErrDownstreamUnsubscribed)),
+					u.SelectSend(downstream, timerResult.Sub(startTime)),
+				); err != nil {
+					return err
+				}
 			}
 		}
 	})
